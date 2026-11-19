@@ -132,3 +132,86 @@ Décisions **non prescrites** par `01_SPECIFICATIONS_ET_ARCHITECTURE.md`. Aucune
 - **Date / statut :** 2026-11-19 — Acceptée (review QA de PR #32, issue #27)
 - **Décision :** recommandation QA **retenue**. F19 est vérifié par `docker compose restart` **et** `docker compose down` (sans `-v`) puis `up` : les données Postgres et les fichiers du volume de preuves restent présents, et une session non expirée reste valide (cookie réutilisé). `down -v` est explicitement exclu du test (il détruit les volumes nommés).
 - **Justification :** `restart` ne recrée pas les conteneurs et ne prouve pas que les données sont dans des volumes nommés plutôt que dans la couche du conteneur.
+
+---
+
+## Décisions UX du designer (PR #36, issue #2)
+
+Décisions non prescrites proposées par le rôle Designer dans `docs/DESIGN.md` et validées par le Tech Lead. Elles portent sur l'interface uniquement, aucun contrat de 01 n'est modifié. Les invariants restent ceux de 01 §7 et de 10_UX : vérité serveur, aucune fuite dans le DOM, parcours complets.
+
+| ID | Décision | Alternatives écartées | Compromis / impact |
+|---|---|---|---|
+| D-UX-01 | Design system « Relevé » (relevé topographique), palette encre et papier, accent sarcelle, glyphe original | Reprendre l'identité d'une référence (interdit par 10_UX) | Toutes les pages front |
+| D-UX-02 | Polices système uniquement, aucune webfont | Police distante (incompatible avec CSP `'self'`, ADR-009), police embarquée (poids) | Compatible avec la CSP de #26 |
+| D-UX-03 | Thème clair seul pour le socle, mode sombre reporté après les bonus | Clair et sombre dès J2 | Moins de surface à vérifier en contraste |
+| D-UX-04 | Sévérité : badge rectangulaire, jauge à 4 barres et libellé, `CRITICAL` seul plein. Statut : pastille ronde à contour avec icône | Couleur seule (non accessible) | Composants badges (#18, #23) |
+| D-UX-05 | Routes front `/t/:tenantId/...`, `/portal/...`, `/platform/...`, sélecteur `/spaces` ; trois coquilles visuellement distinctes. Le `tenantId` d'URL est un simple contexte, jamais une autorisation | Une seule coquille avec menus conditionnels (confusion, risque de fuite) | #17 ; s'appuie sur ADR-021 |
+| D-UX-06 | Création d'edge par formulaire (Source, Cible, Constat) en parcours principal ; glisser-relier en raccourci ; déplacement des nœuds au clavier avec `Maj+flèches` | Glisser-relier seul (inaccessible au clavier) | #22 |
+| D-UX-07 | Panneau textuel (chemins et relations) comme équivalent accessible complet du canvas, avec un bouton « Liste » | Canvas seul avec ARIA | #22, tablette |
+| D-UX-08 | Edges dont le constat est `REMEDIATED` affichés en pointillé « neutralisée », pas masqués ; l'état vient du serveur (ADR-024) | Masquer les edges inactifs | #22, F09 visible |
+| D-UX-09 | Toasts en bas à droite, 3 au plus ; succès 5 s avec pause au survol ; erreurs persistantes avec `request_id` | Toasts bloquants ou modales | Tous les écrans |
+| D-UX-10 | Suppression : focus initial sur « Annuler ». Publication : le dialog liste ce que verra le client | Confirmation générique | #18, #22, #23 |
+| D-UX-11 | Tablette : rail de navigation de 64 px, colonnes prioritaires, panneau du graphe en tiroir | Mise en page desktop compressée | #17, #18, #22 |
+| D-UX-12 | Contrastes vérifiés par un script versionné (`docs/tools/check_contrast.py`) sur les paires déclarées dans les tokens | Vérification manuelle ponctuelle | Reproductible, branchable en CI |
+
+## ADR-021 — Contenu de `GET /auth/me` et de la réponse de login (Q1 du designer)
+- **Date / statut :** 2026-11-19 — Acceptée (#8). Ajoute des champs de réponse, aucun nouveau contrat.
+- **Contexte :** 01 §6 définit `GET /auth/me` et « résultat utilisateur » au login sans en donner la forme. Le front a besoin de savoir quels espaces proposer (D-UX-05).
+- **Décision :** `POST /auth/login` et `GET /auth/me` renvoient le même objet :
+  ```json
+  { "user": { "id": "uuid", "email": "..." },
+    "is_platform_admin": false,
+    "tenant_memberships": [ { "tenant_id": "uuid", "tenant_name": "...", "tenant_slug": "...", "role": "TENANT_ADMIN|PENTESTER" } ],
+    "client_memberships": [ { "client_org_id": "uuid", "client_org_name": "...", "tenant_name": "...", "role": "CLIENT_VIEWER" } ] }
+  ```
+  - Les memberships sont lus en base à chaque appel, jamais mis en cache côté client au-delà de la session TanStack Query (ADR-014).
+  - Les tenants suspendus sont exclus de `tenant_memberships` (#12), tout comme leurs client_orgs.
+  - Ne figurent jamais dans la réponse : `password_hash`, identifiant ou jetons de session, jeton CSRF. Le jeton CSRF reste servi par `GET /auth/csrf`. `client_memberships` n'expose pas de `tenant_id`, qui est inutile au portail.
+  - Ces informations ne servent qu'à l'affichage : l'autorisation reste vérifiée par ressource côté serveur (ADR-008).
+- **Alternatives :** un endpoint « espaces » dédié (contrat supplémentaire) ; déduire les espaces par essais d'appels (bruit de 403/404).
+
+## ADR-022 — Agrégats du tableau de bord sans nouvel endpoint (Q2 du designer)
+- **Date / statut :** 2026-11-19 — Acceptée (#13, #24). Ajoute des champs de réponse, aucun nouvel endpoint.
+- **Contexte :** 01 §7.2 demande « constats par gravité » sur le tableau de bord, et 01 §6 ne prévoit aucune route d'agrégat. Interroger les findings mission par mission coûterait N requêtes.
+- **Décision :** pas d'endpoint d'agrégat. Les éléments de `GET /tenants/{tenant_id}/engagements` (liste et détail) portent deux champs **calculés serveur** :
+  - `findings_count_by_severity` : `{LOW, MEDIUM, HIGH, CRITICAL}` ;
+  - `findings_count_by_status` : `{OPEN, IN_PROGRESS, REMEDIATED, ACCEPTED_RISK}`.
+  
+  Le dashboard appelle `GET .../engagements?status=IN_PROGRESS&limit=100` et additionne ces compteurs côté front, sans aucune logique métier.
+  - Côté portail, `GET /client/engagements` peut exposer `published_findings_count` (constats publiés uniquement, jamais les non publiés).
+  - « Activité récente » : flux `audit-events` pour `TENANT_ADMIN`. Pour `PENTESTER`, on utilise les constats récemment modifiés via `GET /engagements/{id}/findings?sort=-updated_at`, sur les missions en cours.
+- **Alternatives :** `GET /tenants/{tenant_id}/stats` (extension hors §6, écartée pour ne pas étendre le contrat) ; N requêtes de listes (lent).
+- **Compromis :** les compteurs sont recalculés à chaque liste (agrégat SQL groupé, borné par la pagination).
+
+## ADR-023 — Filtres serveur des listes (Q3 du designer)
+- **Date / statut :** 2026-11-19 — Acceptée (#11, #12, #13, #14, #16, #19). Paramètres de requête optionnels, compatibles avec 01 §6 qui exige des « filtres serveur ».
+- **Décision :** tous les paramètres sont optionnels et validés. Une valeur hors enum renvoie 422, un paramètre inconnu est ignoré. Les recherches `q` portent sur les champs texte indiqués, en `ILIKE` paramétré par l'ORM, avec une longueur maximale nommée.
+
+  | Liste | Filtres | Tri par défaut |
+  |---|---|---|
+  | `GET /platform/tenants` | `q` (name, slug), `is_active` | `name` |
+  | `GET /tenants/{id}/clients` | `q` (name) | `name` |
+  | `GET /tenants/{id}/members` | `role` | `email` |
+  | `GET /tenants/{id}/clients/{id}/invitations` | `state` (`pending`, `consumed`, `expired`) | `-created_at` |
+  | `GET /tenants/{id}/engagements` | `status`, `client_org_id`, `q` (name) | `-updated_at` |
+  | `GET /engagements/{id}/assets` | `type`, `is_entry_point`, `is_crown_jewel`, `q` (name) | `name` |
+  | `GET /engagements/{id}/findings` | `severity`, `status`, `published` (bool), `q` (title), `sort` ∈ {`-updated_at`, `-cvss`, `-created_at`} | `-updated_at` |
+  | `GET /tenants/{id}/audit-events` | `action`, `entity_type`, `from`, `to` | `-created_at` |
+  | `GET /client/engagements` | `status` | `-updated_at` |
+  | `GET /client/engagements/{id}/findings` | `severity`, `status` | `-published_at` |
+
+  - Les filtres multi-valeurs passent par la répétition du paramètre (`?severity=HIGH&severity=CRITICAL`).
+  - `client_org_id` n'est accepté que s'il appartient au tenant chargé ; sinon la liste est vide (pas de fuite).
+  - Les listes client restent restreintes aux constats publiés, quel que soit le filtre.
+- **Alternatives :** filtrage côté client (interdit pour la pagination serveur, 10_UX).
+
+## ADR-024 — Statut du constat dans `GET /graph/edges` (Q4 du designer)
+- **Date / statut :** 2026-11-19 — Acceptée (#21, #22). Ajoute des champs de réponse au contrat de §6.
+- **Décision :** chaque edge renvoyé par `GET /engagements/{id}/graph/edges` (et par le POST de création) contient :
+  - `id`, `source_asset_id`, `target_asset_id`, `finding_id` ;
+  - `finding` : `{ id, title, severity, cvss, status }` ;
+  - `is_active` : booléen **calculé serveur** selon la règle de 01 §4 (`status ∈ {OPEN, IN_PROGRESS, ACCEPTED_RISK}`).
+  
+  Le front affiche `is_active` (D-UX-08) sans jointure avec la liste des findings et sans recalcul. `GET /graph/paths` garde exactement la forme de 01 §6 (`{edge_ids, asset_ids, score, target_asset_id}`), sans champ supplémentaire.
+- **Alternatives :** jointure front avec la liste des findings (deux sources à synchroniser, risque d'incohérence transitoire et règle d'activité dupliquée côté client).
+- **Impact :** une seule requête jointe côté serveur ; le front ne détient aucune règle métier de chemin (10_UX).
