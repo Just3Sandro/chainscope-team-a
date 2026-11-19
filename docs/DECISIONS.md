@@ -94,12 +94,13 @@ Décisions **non prescrites** par `01_SPECIFICATIONS_ET_ARCHITECTURE.md`. Aucune
 
 ## ADR-013 — Format d'erreur et request ID
 - **Date / statut :** 2026-11-19 — Acceptée (#5)
-- **Décision :** middleware générant un `request_id` UUID serveur (renvoyé en `X-Request-ID`, inscrit dans les logs et `audit_events.request_id`) ; tous les handlers (HTTPException, validation Pydantic 422, erreurs métier, 500) produisent `{ "error": { "code", "message", "request_id" } }` ; codes symboliques (`UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `VALIDATION_ERROR`, `CONFLICT`, `ENGAGEMENT_CLOSED`, `LIMIT_REACHED`, `INVALID_REFERENCE`, `CSRF_FAILED`, `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_MEDIA_TYPE`, `INTERNAL_ERROR`). Jamais de trace ni de secret dans la réponse.
-- **Impact :** toutes les routes ; F18 (corrélation).
+- **Décision :** middleware générant un `request_id` UUID serveur (renvoyé en `X-Request-ID`, inscrit dans les logs et `audit_events.request_id`) ; tous les handlers (HTTPException, validation Pydantic 422, erreurs métier, 500) produisent `{ "error": { "code", "message", "request_id" } }` ; codes symboliques (`UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `VALIDATION_ERROR`, `CONFLICT`, `ENGAGEMENT_CLOSED`, `LIMIT_REACHED`, `INVALID_REFERENCE`, `CSRF_FAILED`, `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_MEDIA_TYPE`, `TENANT_SUSPENDED`, `ASSET_IN_USE`, `INTERNAL_ERROR`). Jamais de trace ni de secret dans la réponse.
+- **Correspondance HTTP** (01 §6, aucun autre statut) : `UNSUPPORTED_MEDIA_TYPE` → **400** (pas de 415) ; `PAYLOAD_TOO_LARGE` → 413 ; `TENANT_SUSPENDED` → 403 (ADR-026) ; `ENGAGEMENT_CLOSED`, `LIMIT_REACHED`, `ASSET_IN_USE`, `CONFLICT` → 409 ; `RATE_LIMITED` → 429.
+- **Impact :** toutes les routes ; F18 (corrélation). Complété le 2026-11-19 (PR de suivi de #12, ADR-026).
 
 ## ADR-014 — État côté frontend
 - **Date / statut :** 2026-11-19 — Acceptée (#17)
-- **Décision :** aucune donnée sensible en `localStorage`/`sessionStorage` ; jeton CSRF en mémoire ; TanStack Query vidé à la déconnexion/changement d'utilisateur ; portail client ne consomme que les routes `/client/*` ; rendu de tout contenu utilisateur en texte (pas de `dangerouslySetInnerHTML`, pas de rendu Markdown HTML).
+- **Décision :** aucune donnée sensible en `localStorage`/`sessionStorage` ; aucun état d'autorisation persisté côté navigateur : après un rechargement de page, la coquille reconstruit l'espace courant et les memberships via `GET /auth/me` (ADR-021), puis récupère un nouveau jeton CSRF via `GET /auth/csrf` ; jeton CSRF en mémoire ; TanStack Query vidé à la déconnexion/changement d'utilisateur ; portail client ne consomme que les routes `/client/*` ; rendu de tout contenu utilisateur en texte (pas de `dangerouslySetInnerHTML`, pas de rendu Markdown HTML).
 - **Impact :** #17, #18, #22–#24 ; F15 et invariant 10_UX.
 
 ## ADR-015 — Conflits d'état et plafonds
@@ -248,3 +249,22 @@ Décisions non prescrites proposées par le rôle Designer dans `docs/DESIGN.md`
   - jetons d'invitation et de reset transmis dans le **fragment** d'URL (`#token=`), avec `Referrer-Policy: no-referrer`.
 - **Alternatives :** 403 pour les clients sur les routes cabinet (révèle l'existence des UUID) ; 404 pour un tenant suspendu (message incompréhensible pour ses membres légitimes).
 - **Impact :** #10 (policies), #12, #16, #19, #26 (tests paramétrés sur la matrice de THREAT_MODEL §7.2).
+
+## ADR-026 — Comportement d'un tenant suspendu, réponse de forgot-password et `returnTo`
+- **Date / statut :** 2026-11-19 — Acceptée (suivi de la review QA des PR #33, #36 et #37 ; issues #12, #15, #17). Précise ADR-025 §6, sans modifier les contrats de 01.
+- **Tenant suspendu** (`tenants.is_active=false`, `PATCH /platform/tenants/{tenant_id}`, #12) :
+  1. **La connexion est conservée.** Le login et `GET /auth/me` fonctionnent : un utilisateur peut avoir d'autres memberships (01 §1). Ni l'utilisateur ni ses sessions ne sont désactivés. Le tenant suspendu et ses client_orgs sont absents de `/auth/me` (ADR-021). Un utilisateur sans aucun autre espace voit l'état « aucun espace disponible » dans l'interface.
+  2. **L'accès aux données du cabinet est refusé.** Toute route `/tenants/{tenant_id}/*` et `/engagements/{engagement_id}/*` de ce tenant renvoie **403 `TENANT_SUSPENDED`** à ses membres cabinet, après le contrôle de périmètre (404) et avant le contrôle de rôle (ordre d'ADR-025). Les non-membres continuent de recevoir 404.
+  3. **Les engagements sont retirés du portail client.** `GET /client/engagements` ne liste plus les engagements de ce tenant. Le détail, les constats et le téléchargement de preuves renvoient **404**, sans code spécifique, pour ne pas révéler l'état d'un cabinet à ses clients.
+  4. **Les routes plateforme restent ouvertes.** `PLATFORM_ADMIN` garde l'accès à `/platform/*`. La réactivation (`is_active=true`) rétablit les accès sans autre action. Les événements `tenant.suspend` et `tenant.reactivate` sont journalisés (#11).
+  5. **Libellé UI** (DESIGN P8) : « Les membres de ce cabinet n'auront plus accès à ses données et ses clients ne verront plus ses missions. » La formulation « ne pourront plus se connecter » est inexacte.
+  6. **Tests** (SEC-suspended, #12 et #26) :
+     - membre cabinet → 403 `TENANT_SUSPENDED` ;
+     - non-membre → 404 ;
+     - client → liste vide et 404 ;
+     - login toujours 200 et `/auth/me` sans ce tenant ;
+     - réactivation → accès rétabli.
+- **`POST /auth/forgot-password`** (#15) : la réponse est **204 sans corps**, identique que le compte existe ou non. Le 202 initialement écrit dans #15 ne fait pas partie des statuts de 01 §6.
+- **`returnTo` après connexion** (#17) : seul un chemin interne relatif est accepté. Il doit commencer par un seul `/`, ne pas commencer par `//` ni par `/\`, et ne contenir ni antislash, ni schéma (`:` avant le premier `/`), ni caractère de contrôle. Il est en outre comparé à la table des routes connues. Sinon, on redirige vers l'accueil de l'espace. Test Vitest attendu avec les cas `//evil`, `/\evil`, `/\/evil`, `https://evil`, `javascript:` et un chemin encodé (`%2F%2Fevil`).
+- **Alternatives :** désactiver les utilisateurs du tenant suspendu (destructif pour les utilisateurs multi-memberships) ; 403 `TENANT_SUSPENDED` côté client (révèle l'état interne du cabinet).
+- **Impact :** #12, #15, #17, #19, #24, #26 ; DESIGN P8 ; THREAT_MODEL R6, dont la matrice doit afficher 204 pour forgot-password.
