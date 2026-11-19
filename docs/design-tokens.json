@@ -1,0 +1,180 @@
+{
+  "$meta": {
+    "name": "Releve",
+    "product": "ChainScope",
+    "version": "1.0.0",
+    "date": "2026-11-19",
+    "issue": "#2",
+    "usage": "tailwind.config.ts: theme.extend = tokens.tailwind ; tokens.semantic = mapping metier (severite, statuts, graphe) ; contrastPairs verifie par docs/tools/check_contrast.py",
+    "theme": "clair uniquement pour le socle (mode sombre = bonus apres stabilisation)"
+  },
+  "tailwind": {
+    "colors": {
+      "ink": {
+        "50": "#F5F7F9",
+        "100": "#E9EEF2",
+        "200": "#D6DEE5",
+        "300": "#B7C3CE",
+        "400": "#7D8C9A",
+        "500": "#56687A",
+        "700": "#34485A",
+        "900": "#14202B"
+      },
+      "paper": "#FFFFFF",
+      "canvas": "#F1F4F6",
+      "accent": {
+        "50": "#EDF7F6",
+        "100": "#D5EEEB",
+        "600": "#0E7069",
+        "700": "#0B5F59",
+        "800": "#084A45"
+      },
+      "focus": "#2349C8",
+      "danger": { "50": "#FDECEA", "600": "#B42318", "700": "#912018" },
+      "success": { "50": "#E6F4EA", "700": "#146C2E" },
+      "warning": { "50": "#FFF3DC", "700": "#7A4D00" },
+      "info": { "50": "#E7EFFA", "700": "#1F5AA6" },
+      "sev": {
+        "low": { "fg": "#2F5A7A", "bg": "#E3EEF6", "solid": "#4A7FA8" },
+        "medium": { "fg": "#7A4D00", "bg": "#FFF1D6", "solid": "#B7791F" },
+        "high": { "fg": "#9A3412", "bg": "#FDE7DA", "solid": "#D9622B" },
+        "critical": { "fg": "#FFFFFF", "bg": "#A3172E", "solid": "#A3172E" }
+      },
+      "status": {
+        "open": { "fg": "#14202B", "border": "#56687A" },
+        "progress": { "fg": "#1F5AA6", "border": "#1F5AA6" },
+        "remediated": { "fg": "#146C2E", "border": "#146C2E" },
+        "accepted": { "fg": "#6B3FA0", "border": "#6B3FA0" }
+      },
+      "graph": {
+        "edgeActive": "#34485A",
+        "edgeNeutralized": "#7D8C9A",
+        "pathSelected": "#0E7069",
+        "pathHalo": "#D5EEEB",
+        "nodeBorder": "#B7C3CE",
+        "entry": "#1F5AA6",
+        "crown": "#7A4D00"
+      }
+    },
+    "fontFamily": {
+      "sans": ["system-ui", "-apple-system", "Segoe UI", "Roboto", "Noto Sans", "Helvetica Neue", "Arial", "sans-serif"],
+      "mono": ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono", "monospace"]
+    },
+    "fontSize": {
+      "xs": ["0.75rem", { "lineHeight": "1rem" }],
+      "sm": ["0.875rem", { "lineHeight": "1.25rem" }],
+      "base": ["1rem", { "lineHeight": "1.5rem" }],
+      "lg": ["1.125rem", { "lineHeight": "1.75rem" }],
+      "xl": ["1.375rem", { "lineHeight": "1.875rem" }],
+      "2xl": ["1.75rem", { "lineHeight": "2.25rem" }]
+    },
+    "fontWeight": {
+      "normal": "400",
+      "medium": "500",
+      "semibold": "600"
+    },
+    "borderRadius": {
+      "none": "0",
+      "sm": "0.25rem",
+      "DEFAULT": "0.375rem",
+      "md": "0.5rem",
+      "lg": "0.75rem",
+      "full": "9999px"
+    },
+    "boxShadow": {
+      "card": "0 1px 2px rgba(20, 32, 43, 0.06), 0 1px 1px rgba(20, 32, 43, 0.04)",
+      "popover": "0 8px 24px rgba(20, 32, 43, 0.14)",
+      "dialog": "0 16px 48px rgba(20, 32, 43, 0.22)"
+    },
+    "screens": {
+      "md": "768px",
+      "lg": "1024px",
+      "xl": "1280px"
+    },
+    "zIndex": {
+      "sticky": "20",
+      "drawer": "30",
+      "dialog": "40",
+      "toast": "50"
+    },
+    "transitionDuration": {
+      "fast": "120ms",
+      "base": "200ms"
+    },
+    "spacing": {
+      "sidebar": "15rem",
+      "sidebar-collapsed": "4rem",
+      "topbar": "3.5rem",
+      "drawer": "26rem"
+    }
+  },
+  "semantic": {
+    "severity": {
+      "LOW": { "label": "Faible", "tokens": "sev.low", "bars": 1, "badge": "bg-sev-low-bg text-sev-low-fg" },
+      "MEDIUM": { "label": "Moyenne", "tokens": "sev.medium", "bars": 2, "badge": "bg-sev-medium-bg text-sev-medium-fg" },
+      "HIGH": { "label": "Elevee", "tokens": "sev.high", "bars": 3, "badge": "bg-sev-high-bg text-sev-high-fg" },
+      "CRITICAL": { "label": "Critique", "tokens": "sev.critical", "bars": 4, "badge": "bg-sev-critical-bg text-sev-critical-fg" }
+    },
+    "findingStatus": {
+      "OPEN": { "label": "Ouvert", "icon": "circle-hollow", "tokens": "status.open", "pathEffect": "actif" },
+      "IN_PROGRESS": { "label": "En cours", "icon": "circle-half", "tokens": "status.progress", "pathEffect": "actif" },
+      "REMEDIATED": { "label": "Corrige", "icon": "check", "tokens": "status.remediated", "pathEffect": "neutralise" },
+      "ACCEPTED_RISK": { "label": "Risque accepte", "icon": "flag", "tokens": "status.accepted", "pathEffect": "actif" }
+    },
+    "engagementStatus": {
+      "DRAFT": { "label": "Brouillon", "icon": "pencil", "style": "bordure pointillee ink-500, texte ink-700" },
+      "IN_PROGRESS": { "label": "En cours", "icon": "play", "style": "fond accent-50, texte accent-700" },
+      "CLOSED": { "label": "Cloturee", "icon": "lock", "style": "fond ink-100, texte ink-900" }
+    },
+    "publication": {
+      "published": { "label": "Publie au client", "icon": "eye", "style": "fond success-50, texte success-700" },
+      "internal": { "label": "Interne", "icon": "eye-off", "style": "fond ink-100, texte ink-700" }
+    },
+    "graph": {
+      "edgeActive": { "stroke": "graph.edgeActive", "width": 2, "dash": "none", "marker": "arrow-closed" },
+      "edgeNeutralized": { "stroke": "graph.edgeNeutralized", "width": 1.5, "dash": "6 4", "marker": "arrow-open", "label": "neutralise" },
+      "pathSelected": { "stroke": "graph.pathSelected", "width": 4, "halo": "graph.pathHalo", "haloWidth": 10 },
+      "dimmedOpacity": 0.35
+    }
+  },
+  "contrastPairs": [
+    { "name": "texte principal / paper", "fg": "#14202B", "bg": "#FFFFFF", "min": 4.5 },
+    { "name": "texte principal / ink-50 (fond app)", "fg": "#14202B", "bg": "#F5F7F9", "min": 4.5 },
+    { "name": "texte secondaire ink-700 / paper", "fg": "#34485A", "bg": "#FFFFFF", "min": 4.5 },
+    { "name": "texte attenue ink-500 / paper", "fg": "#56687A", "bg": "#FFFFFF", "min": 4.5 },
+    { "name": "texte attenue ink-500 / ink-50", "fg": "#56687A", "bg": "#F5F7F9", "min": 4.5 },
+    { "name": "texte attenue ink-500 / ink-100 (ligne survolee)", "fg": "#56687A", "bg": "#E9EEF2", "min": 4.5 },
+    { "name": "bouton primaire paper / accent-600", "fg": "#FFFFFF", "bg": "#0E7069", "min": 4.5 },
+    { "name": "bouton primaire survol paper / accent-700", "fg": "#FFFFFF", "bg": "#0B5F59", "min": 4.5 },
+    { "name": "lien accent-700 / paper", "fg": "#0B5F59", "bg": "#FFFFFF", "min": 4.5 },
+    { "name": "nav active accent-800 / accent-50", "fg": "#084A45", "bg": "#EDF7F6", "min": 4.5 },
+    { "name": "bouton danger paper / danger-600", "fg": "#FFFFFF", "bg": "#B42318", "min": 4.5 },
+    { "name": "alerte erreur danger-700 / danger-50", "fg": "#912018", "bg": "#FDECEA", "min": 4.5 },
+    { "name": "alerte succes success-700 / success-50", "fg": "#146C2E", "bg": "#E6F4EA", "min": 4.5 },
+    { "name": "alerte avertissement warning-700 / warning-50", "fg": "#7A4D00", "bg": "#FFF3DC", "min": 4.5 },
+    { "name": "alerte info info-700 / info-50", "fg": "#1F5AA6", "bg": "#E7EFFA", "min": 4.5 },
+    { "name": "badge LOW", "fg": "#2F5A7A", "bg": "#E3EEF6", "min": 4.5 },
+    { "name": "badge MEDIUM", "fg": "#7A4D00", "bg": "#FFF1D6", "min": 4.5 },
+    { "name": "badge HIGH", "fg": "#9A3412", "bg": "#FDE7DA", "min": 4.5 },
+    { "name": "badge CRITICAL", "fg": "#FFFFFF", "bg": "#A3172E", "min": 4.5 },
+    { "name": "statut OPEN / paper", "fg": "#14202B", "bg": "#FFFFFF", "min": 4.5 },
+    { "name": "statut IN_PROGRESS / paper", "fg": "#1F5AA6", "bg": "#FFFFFF", "min": 4.5 },
+    { "name": "statut REMEDIATED / paper", "fg": "#146C2E", "bg": "#FFFFFF", "min": 4.5 },
+    { "name": "statut ACCEPTED_RISK / paper", "fg": "#6B3FA0", "bg": "#FFFFFF", "min": 4.5 },
+    { "name": "non-texte: anneau focus / paper", "fg": "#2349C8", "bg": "#FFFFFF", "min": 3.0 },
+    { "name": "non-texte: anneau focus / ink-50 (fond app)", "fg": "#2349C8", "bg": "#F5F7F9", "min": 3.0 },
+    { "name": "non-texte: anneau focus / canvas graphe", "fg": "#2349C8", "bg": "#F1F4F6", "min": 3.0 },
+    { "name": "non-texte: bordure champ ink-400 / paper", "fg": "#7D8C9A", "bg": "#FFFFFF", "min": 3.0 },
+    { "name": "non-texte: sev LOW solid / paper", "fg": "#4A7FA8", "bg": "#FFFFFF", "min": 3.0 },
+    { "name": "non-texte: sev MEDIUM solid / paper", "fg": "#B7791F", "bg": "#FFFFFF", "min": 3.0 },
+    { "name": "non-texte: sev HIGH solid / paper", "fg": "#D9622B", "bg": "#FFFFFF", "min": 3.0 },
+    { "name": "non-texte: sev CRITICAL solid / paper", "fg": "#A3172E", "bg": "#FFFFFF", "min": 3.0 },
+    { "name": "graphe: edge actif / canvas", "fg": "#34485A", "bg": "#F1F4F6", "min": 3.0 },
+    { "name": "graphe: edge neutralise / canvas", "fg": "#7D8C9A", "bg": "#F1F4F6", "min": 3.0 },
+    { "name": "graphe: chemin selectionne / canvas", "fg": "#0E7069", "bg": "#F1F4F6", "min": 3.0 },
+    { "name": "graphe: chemin selectionne / halo", "fg": "#0E7069", "bg": "#D5EEEB", "min": 3.0 },
+    { "name": "graphe: libelle entry point / paper", "fg": "#1F5AA6", "bg": "#FFFFFF", "min": 4.5 },
+    { "name": "graphe: libelle crown jewel / paper", "fg": "#7A4D00", "bg": "#FFFFFF", "min": 4.5 },
+    { "name": "graphe: texte attenue ink-500 / canvas", "fg": "#56687A", "bg": "#F1F4F6", "min": 4.5 }
+  ]
+}
