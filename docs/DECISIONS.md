@@ -120,3 +120,15 @@ Décisions **non prescrites** par `01_SPECIFICATIONS_ET_ARCHITECTURE.md`. Aucune
 ## ADR-018 — Stratégie de branches, review et merge
 - **Date / statut :** 2026-11-19 — Acceptée (#1)
 - **Décision :** voir `docs/PLAN.md` §5 : une issue = une PR ; QA systématique ; Cyber sur les PR sensibles ; Designer sur les PR frontend ; merge squash après CI verte et approbations, par le coordinateur ; aucun push direct sur `main`.
+
+## ADR-019 — Smoke Playwright dès la sortie de J2
+- **Date / statut :** 2026-11-19 — Acceptée (review QA de PR #32, issue #34)
+- **Contexte :** la suite E2E complète (#27) n'arrive qu'en J4 ; les défauts d'intégration proxy / cookies `SameSite` / CSRF ne sont visibles qu'en navigateur réel à travers le reverse proxy (ADR-009).
+- **Décision :** recommandation QA **retenue**. Issue #34 (P0, J2) : smoke Playwright local connexion → client → mission → constat → déconnexion, contre `docker compose up`, sans mock ; il initialise le projet `e2e/` réutilisé par #27. Exécution locale documentée, sortie jointe à la PR ; intégration CI via `e2e.yml` (`workflow_dispatch`) comme #27.
+- **Alternatives :** attendre #27 (risque de découverte tardive) ; E2E complet à chaque PR (trop coûteux en 48 h).
+- **Compromis :** une PR supplémentaire en J2 sur le chemin de sortie du jalon ; coût faible car le projet `e2e/` sert ensuite à #27.
+
+## ADR-020 — Preuve de persistance F19 par `down`/`up`
+- **Date / statut :** 2026-11-19 — Acceptée (review QA de PR #32, issue #27)
+- **Décision :** recommandation QA **retenue**. F19 est vérifié par `docker compose restart` **et** `docker compose down` (sans `-v`) puis `up` : les données Postgres et les fichiers du volume de preuves restent présents, et une session non expirée reste valide (cookie réutilisé). `down -v` est explicitement exclu du test (il détruit les volumes nommés).
+- **Justification :** `restart` ne recrée pas les conteneurs et ne prouve pas que les données sont dans des volumes nommés plutôt que dans la couche du conteneur.
