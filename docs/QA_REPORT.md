@@ -80,6 +80,25 @@ Ces tests sont distincts des scénarios F. Ils sont portés par `backend/tests/s
 | Logique | Mutations sur mission `CLOSED` (hypothèse AQ #30) ; finding d'un autre engagement dans un edge ; preuve non publiée | I | #13, #14, #20, #21 | à faire |
 | Production | En-têtes CSP, `frame-ancestors`, `Referrer-Policy`, CORS explicite, `Secure`, debug désactivé, erreurs sans secret | M, S | #26 | à faire |
 
+### 3.1 Tests complémentaires issus de `docs/THREAT_MODEL.md` (§7.2, §10, PR #37)
+
+Ces tests sont à créer dans `backend/tests/security/`, sauf mention contraire. Ils sont référencés par leur identifiant dans le threat model.
+
+| ID | Cas | Menace | Niveau | Issue | Statut |
+|---|---|---|---|---|---|
+| SEC-RBAC | Matrice route × rôle paramétrée : 44 routes × 7 profils (ANO, PA, TA, PT, CV, XT, XC), codes attendus de THREAT_MODEL §7.2 | T-API-01/07, T-EVD-06, T-GRA-04, T-INV-04 | S | #10, #26 | à faire |
+| SEC-fixation | Session présentée au login révoquée, nouveau token émis | T-AUTH-04 | I | #8 | à faire |
+| SEC-login-origin | Login et routes à token refusés si `Origin` est étranger | T-AUTH-08 | S | #8, #26 | à faire |
+| SEC-token-url | Jeton d'invitation/reset absent des logs, du `Referer` et de la query | T-INV-05 | I, E | #15, #16, #17 | à faire |
+| SEC-invite-existing | Invitation vers un compte existant : preuve de possession exigée (hypothèse #16) | T-INV-07 | I | #16 | à faire |
+| SEC-reassign | `client_org_id` d'un engagement non réaffectable (si retenu dans #13) | T-API-06 | I | #13 | à faire |
+| SEC-unpublish | Après rétractation : constat et preuves à nouveau en 404 côté client | T-CLI-06 | I | #19, #20 | à faire |
+| SEC-sqli | Payloads d'injection dans `q`, tri et filtres sans effet (liste blanche) | T-API-09 | S | #10, #13, #14 | à faire |
+| SEC-dos-paths | Graphe dense au plafond (150/300) : réponse bornée en temps, au plus 20 chemins | T-GRA-02 | U, I | #21 | à faire |
+| SEC-RL-login / SEC-RL-forgot | 429 normalisé au seuil, message identique pour un compte existant ou inexistant | T-AUTH-01, T-INV-09 | I | #8, #15 | à faire |
+| SEC-suspended | Membre d'un tenant suspendu bloqué, portail client du tenant en 404 (comportement exact à trancher dans #12) | T-API-08 | I | #12 | à faire |
+| SEC-audit-immutable | `UPDATE`/`DELETE` sur `audit_events` refusés par trigger | T-AUD-01 | I | #7, #11 | à faire |
+
 ## 4. Critères de refus de PR (verdict QA)
 
 Chaque review QA commence par `VERDICT QA: APPROUVÉ` ou `VERDICT QA: CHANGEMENTS DEMANDÉS` suivi de la liste des points. Une PR est **refusée** si :
@@ -117,6 +136,8 @@ Règles :
 |---|---|---|---|---|
 | #32 | #1 | 2026-11-19 | CHANGEMENTS DEMANDÉS | Priorités P1 sur des exigences obligatoires ; chemin critique sans #16 ; DoD sans lien de journal ni règle pré-CI |
 | #32 | #1 | 2026-11-19 | APPROUVÉ | Corrections du commit 791386f vérifiées (P0, chemin critique via #16, DoD §6.3–6.5, #34, ADR-019/020) |
+| #36 | #2 | 2026-11-19 | APPROUVÉ | `check_contrast.py` relancé : 38/38, exit 0 ; `json.tool` OK ; remarques : 415 → 400 `UNSUPPORTED_MEDIA_TYPE`, suspension à aligner avec THREAT_MODEL R6 |
+| #37 | #3 | 2026-11-19 | CHANGEMENTS DEMANDÉS | 202 sur forgot-password hors codes de 01 §6 ; R6 `TENANT_SUSPENDED` absent d'ADR-013 et contradictoire avec DESIGN P8 |
 
 ## 7. Anomalies ouvertes
 
