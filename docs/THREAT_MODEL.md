@@ -2,7 +2,7 @@
 
 - **Auteur :** rôle Expert Cyber — issue #3
 - **Statut :** version initiale J1 (avant implémentation). Révisée à chaque PR sensible et en J4 (#26).
-- **Sources normatives :** `01_SPECIFICATIONS_ET_ARCHITECTURE.md` (§1, §3–§8), `02_PLAN_DE_TEST_ET_SECURITE.md` (F01–F20, §3, §6). Décisions d'implémentation : `docs/DECISIONS.md` (ADR-006 à ADR-016).
+- **Sources normatives :** `01_SPECIFICATIONS_ET_ARCHITECTURE.md` (§1, §3–§8), `02_PLAN_DE_TEST_ET_SECURITE.md` (F01–F20, §3, §6). Décisions d'implémentation : `docs/DECISIONS.md` (ADR-006 à ADR-016, ADR-021 forme de `/auth/me`, ADR-024, **ADR-025** codes 403/404, ordre des contrôles, tenant suspendu).
 - **Ce document ne modifie aucun contrat.** Les points non tranchés par la spec sont signalés comme *hypothèse de travail* et renvoient à une `architecture-question` (#29, #30, #31, #35).
 - **Conformité :** aucune conformité OWASP ASVS n'est revendiquée (01 §8). Les contrôles listés en §12 sont *visés* ; seuls ceux couverts par un test exécuté et journalisé pourront être déclarés « vérifiés » dans `docs/QA_REPORT.md`.
 - **Données :** exclusivement fictives (02 §1). Aucun scan de service tiers ; toutes les vérifications s'exécutent sur instance locale.
@@ -107,7 +107,7 @@ Légende : S usurpation, T altération, R répudiation, I divulgation, D déni d
 | T-INV-03 | E | Rôle choisi par l'invité (`role` dans le body d'acceptation) | Rôle et périmètre lus **uniquement** depuis l'invitation stockée ; `extra="forbid"` | F17 |
 | T-INV-04 | E | PENTESTER invite un admin / un client | Invitation membres et clients : `TENANT_ADMIN` seulement ; `PLATFORM_ADMIN` : `role=TENANT_ADMIN` seulement (hyp. AQ #29) | SEC-RBAC |
 | T-INV-05 | I | Token exposé par URL (logs nginx, Referer, historique) | Token dans le **fragment** (`#token=`), `Referrer-Policy: no-referrer`, retrait de l'historique (#17), aucun log de query | SEC-token-url |
-| T-INV-06 | I | Énumération via forgot-password (réponse ou timing) | 202 identique ; envoi d'e-mail hors du chemin de réponse | 02 §3 |
+| T-INV-06 | I | Énumération via forgot-password (réponse ou timing) | **204** sans corps, identique que le compte existe ou non (§7.1 R7) ; envoi d'e-mail hors du chemin de réponse | 02 §3 |
 | T-INV-07 | S | Acceptation d'une invitation pour un compte existant sans preuve de possession du compte | Hypothèse de travail : vérifier le mot de passe du compte existant avant d'ajouter le membership (commentaire #16) | SEC-invite-existing |
 | T-INV-08 | E | Invitation d'un tenant A utilisée sur B | `tenant_id`/`client_org_id` portés par l'invitation, jamais par le body | #16 |
 | T-INV-09 | D | Spam d'invitations / reset (abus SMTP) | Rate limit forgot ; invitations réservées aux admins authentifiés | SEC-RL-forgot |
@@ -148,7 +148,7 @@ Légende : S usurpation, T altération, R répudiation, I divulgation, D déni d
 | T-EVD-04 | I | Accès direct au stockage | Volume hors webroot, aucune route statique ; download uniquement via route autorisée | F12, F13 |
 | T-EVD-05 | I | Client devine un `evidence_id` | Download client : membership client **et** finding publié **et** `client_visible=true`, sinon 404 | F13 |
 | T-EVD-06 | I | IDOR cabinet : `evidence_id` d'un autre engagement sous un `engagement_id` autorisé | Requête `evidence.id = :id AND evidence.engagement_id = :eid AND tenant_id = périmètre` | SEC-RBAC |
-| T-EVD-07 | T/I | XSS / sniffing au téléchargement | `Content-Disposition: attachment` (nom assaini, `filename*` RFC 6266, CR/LF retirés), `nosniff`, `Content-Type` = MIME vérifié, `Cache-Control: no-store`, recommandé `Content-Security-Policy: sandbox` | F12, 02 §3 |
+| T-EVD-07 | T/I | XSS / sniffing au téléchargement | `Content-Disposition: attachment` (nom assaini, `filename*` RFC 6266, CR/LF retirés), `nosniff`, `Content-Type` = MIME vérifié, `Cache-Control: no-store`, `Content-Security-Policy: sandbox` (critère reporté sur #20, vérifié par #26) | F12, 02 §3 |
 | T-EVD-08 | R | Téléchargement nié | Audit `evidence.download` (cabinet et client) | F18 |
 | T-EVD-09 | T | Altération du fichier stocké | SHA-256 calculé serveur à l'upload, exposé au cabinet | F12 |
 
@@ -189,9 +189,12 @@ Légende : S usurpation, T altération, R répudiation, I divulgation, D déni d
 1. **401** si pas de session valide (sauf routes anonymes de §7).
 2. **403 `CSRF_FAILED`** si méthode mutante cookie-based sans `X-CSRF-Token` valide.
 3. **Périmètre** : chargement de la ressource parente (tenant / engagement / client_org) filtré par les memberships du principal (lus en base) → **404** si absente ou hors périmètre.
-4. **Rôle** dans ce périmètre insuffisant → **403** (décidé **avant** tout chargement de ressource enfant, pour que la réponse ne dépende pas de l'existence de l'enfant).
-5. Chargement de l'enfant **dans** le parent (`child.engagement_id = parent.id`) → **404**.
-6. Validation (422 schéma, 400 métier/`INVALID_REFERENCE`), état (409 `ENGAGEMENT_CLOSED`, `LIMIT_REACHED`), taille (413).
+4. **Tenant suspendu** → **403 `TENANT_SUSPENDED`** (ADR-025 §6).
+5. **Rôle** dans ce périmètre insuffisant → **403** (décidé **avant** tout chargement de ressource enfant, pour que la réponse ne dépende pas de l'existence de l'enfant).
+6. Chargement de l'enfant **dans** le parent (`child.engagement_id = parent.id`) → **404**.
+7. Validation (422 schéma, 400 métier/`INVALID_REFERENCE`), état (409 `ENGAGEMENT_CLOSED`, `LIMIT_REACHED`), taille (413).
+
+Authentification et autorisation sont des dépendances FastAPI résolues **avant** la validation du corps : un 422 ne renseigne jamais un appelant non autorisé (ADR-025 §4). Seule exception tolérée : un 413 émis par le reverse proxy avant le backend ; `client_max_body_size` est donc réglé au-dessus de 10 Mio + enveloppe multipart pour que le 413 contractuel soit émis par le backend, après autorisation.
 
 ## 7. Matrice RBAC
 
@@ -202,7 +205,12 @@ Légende : S usurpation, T altération, R répudiation, I divulgation, D déni d
 - **R3** — Routes `/platform/*` : capacité globale, non liée à une ressource métier → **403** pour tout authentifié non `PLATFORM_ADMIN` (rien à cacher). Exception AQ #29 (hyp.) : `PLATFORM_ADMIN` peut appeler `POST /tenants/{tenant_id}/members` avec `role=TENANT_ADMIN` uniquement (sinon 403) ; il reste en 404 sur toutes les autres routes du tenant.
 - **R4** — Routes `/client/*` : listes filtrées par `client_memberships` (200, éventuellement vide, pour tout authentifié) ; détail / download hors périmètre, non publié ou non visible → **404**.
 - **R5** — Anonyme → **401** sur toute route non listée comme anonyme.
-- **R6** — Tenant suspendu (`is_active=false`) : hypothèse de travail (#12) — 403 `TENANT_SUSPENDED` pour ses membres cabinet, ses engagements exclus du portail client (404).
+- **R6** — Tenant suspendu (`tenants.is_active=false`, #12) — décidé par **ADR-025 §6** (code `TENANT_SUSPENDED` ajouté à ADR-013) :
+  - `POST /auth/login` **reste possible** (200) : la suspension porte sur le tenant, pas sur le compte (`users.is_active` inchangé) ; les sessions existantes restent valides. Un utilisateur sans autre membership se connecte donc, mais `GET /auth/me` renvoie `tenant_memberships` sans ce tenant (ni ses client_orgs, ADR-021) : aucun espace métier ne lui est proposé ;
+  - ses membres cabinet reçoivent **403 `TENANT_SUSPENDED`** sur toutes les routes `/tenants/{t}/*` et `/engagements/{e}/*` du tenant (ordre §6, étape 4) ;
+  - portail client : ses engagements disparaissent (`GET /client/engagements` sans eux ; détail, constats et download → 404) ;
+  - `/platform/*` reste accessible au `PLATFORM_ADMIN` (réactivation par `PATCH /platform/tenants/{t}`).
+- **R7** — `POST /auth/forgot-password` → **204 No Content** dans tous les cas (compte existant, inexistant, inactif). 01 §6 n'autorise que 200/201/204 ; 204 est retenu plutôt que 200 car l'absence de corps rend la non-énumération vérifiable trivialement (réponses octet pour octet identiques) et ne laisse aucun message susceptible de diverger. Le 429 (rate limit) s'applique de façon identique quel que soit le compte.
 
 ### 7.2 Matrice route × rôle
 
@@ -214,7 +222,7 @@ Colonnes : **ANO** anonyme · **PA** `PLATFORM_ADMIN` sans membership · **TA** 
 | 2 | `GET /auth/me` | 401 | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
 | 3 | `GET /auth/csrf` | 401 | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
 | 4 | `POST /auth/logout` (CSRF) | 401 | ✔ 204 | ✔ | ✔ | ✔ | ✔ | ✔ |
-| 5 | `POST /auth/forgot-password` | ✔ 202 | ✔ 202 | ✔ 202 | ✔ 202 | ✔ 202 | ✔ 202 | ✔ 202 |
+| 5 | `POST /auth/forgot-password` | ✔ 204 | ✔ 204 | ✔ 204 | ✔ 204 | ✔ 204 | ✔ 204 | ✔ 204 |
 | 6 | `POST /auth/reset-password` (token) | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
 | 7 | `POST /auth/accept-invitation` (token) | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
 | 8 | `GET /platform/tenants` | 401 | ✔ | 403 | 403 | 403 | 403 | 403 |
@@ -321,7 +329,7 @@ La review est publiée dans la PR avec, pour chaque point : ✔ / ✘ / N/A et l
 
 **Authentification / sessions (#8, #9, #15, #16)**
 - [ ] **[B]** Tokens générés par `secrets` (256 bits), seuls les SHA-256 stockés, comparaison temps constant.
-- [ ] **[B]** Session vérifiée à chaque requête : expiration, révocation, `is_active`, tenant actif.
+- [ ] **[B]** Session vérifiée à chaque requête : expiration, révocation, `users.is_active` ; `tenants.is_active` vérifié dans la résolution de périmètre (403 `TENANT_SUSPENDED`, ADR-025).
 - [ ] Nouveau token à chaque login ; révocation au logout et de toutes les sessions au reset.
 - [ ] Cookie : `HttpOnly`, `SameSite=Lax`, `Secure` piloté par config, `Path=/`.
 - [ ] **[B]** CSRF exigé sur toute mutation cookie-based (y compris logout) ; test F16.
@@ -346,7 +354,7 @@ La review est publiée dans la PR avec, pour chaque point : ✔ / ✘ / N/A et l
 - [ ] Limite 10 Mio appliquée en flux ; temporaire supprimé sur rejet ; aucun fichier orphelin (F14).
 - [ ] Extension + Content-Type + signature concordants ; liste blanche stricte.
 - [ ] `storage_key` UUID4, aucun composant du nom utilisateur dans le chemin.
-- [ ] En-têtes : `attachment` avec nom assaini (sans CR/LF/guillemets), `nosniff`, `no-store`, MIME vérifié.
+- [ ] En-têtes : `attachment` avec nom assaini (sans CR/LF/guillemets), `nosniff`, `no-store`, `Content-Security-Policy: sandbox`, MIME vérifié.
 
 **Audit (#11)**
 - [ ] Événement écrit pour chaque action de 01 §4 Historique ; métadonnées en liste blanche ; test F18 cherchant mot de passe / token / cookie dans `metadata_json`.
@@ -386,7 +394,7 @@ Les numéros de chapitres correspondent à la structure ASVS 5.0 consultée par 
 | RR-02 | Aucune route §6 pour retirer un membership, changer un rôle ou désactiver un utilisateur, alors que 01 §4 journalise les « changements de rôles » ; seul levier : suspension du tenant | Spec | Architecture-question #35 |
 | RR-03 | Pas de route de changement de mot de passe authentifié (seulement reset) | Spec | Révocation implémentée sur le reset ; signalé dans #35 |
 | RR-04 | Lecture des événements d'audit plateforme (`tenant_id` NULL) non prévue par §6 | Spec | Événements écrits ; consultation hors périmètre ; signalé dans #35 |
-| RR-05 | Un PDF téléchargé peut contenir du contenu actif interprété par le lecteur local | Formats autorisés | Mitigé par `attachment` + `nosniff` + `sandbox` ; pas d'analyse antivirus (hors périmètre) |
+| RR-05 | Un PDF téléchargé peut contenir du contenu actif interprété par le lecteur local | Formats autorisés | Mitigé par `attachment` + `nosniff` + `CSP: sandbox` (critères #20/#26) ; pas d'analyse antivirus (hors périmètre) |
 | RR-06 | Tokens d'invitation/reset transitent par e-mail (Mailpit en clair en dev) | 01 §3 | Expiration courte, usage unique ; SMTP TLS en prod hors périmètre du benchmark |
 | RR-07 | Revues Cyber réalisées par le même LLM que les autres rôles | 03_ROLES règle 3 | Contextes séparés ; indépendance inférieure à une revue humaine |
 | RR-08 | Énumération par timing résiduelle (Argon2 factice, envoi d'e-mail) | Implémentation | Mesure indicative en #26, pas de garantie |
