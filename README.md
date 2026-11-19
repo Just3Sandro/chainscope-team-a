@@ -35,3 +35,8 @@
 ## Sécurité et périmètre
 
 Uniquement des comptes et données de démonstration **fictifs**. Pas de scans offensifs réels ni de déploiement public sans validation. Ne pas donner aux agents les secrets personnels, tokens de production ni droits d'administrateur GitHub. Ce dossier est un **benchmark d'ingénierie**, pas un produit certifié.
+
+## Développement
+
+Le guide [docs/DEV.md](docs/DEV.md) décrit les prérequis, la configuration locale
+et les commandes Docker Compose, backend et frontend.
