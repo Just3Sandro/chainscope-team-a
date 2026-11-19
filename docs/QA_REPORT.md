@@ -91,13 +91,36 @@ Ces tests sont à créer dans `backend/tests/security/`, sauf mention contraire.
 | SEC-login-origin | Login et routes à token refusés si `Origin` est étranger | T-AUTH-08 | S | #8, #26 | à faire |
 | SEC-token-url | Jeton d'invitation/reset absent des logs, du `Referer` et de la query | T-INV-05 | I, E | #15, #16, #17 | à faire |
 | SEC-invite-existing | Invitation vers un compte existant : preuve de possession exigée (hypothèse #16) | T-INV-07 | I | #16 | à faire |
-| SEC-reassign | `client_org_id` d'un engagement non réaffectable (si retenu dans #13) | T-API-06 | I | #13 | à faire |
+| SEC-reassign | **Obligatoire (ADR-025)** : `client_org_id` d'un engagement non modifiable après création (`PATCH` avec ce champ → 422, aucun changement en base, constats publiés toujours rattachés au client d'origine) | T-API-06 | I | #13, #26 | à faire |
 | SEC-unpublish | Après rétractation : constat et preuves à nouveau en 404 côté client | T-CLI-06 | I | #19, #20 | à faire |
 | SEC-sqli | Payloads d'injection dans `q`, tri et filtres sans effet (liste blanche) | T-API-09 | S | #10, #13, #14 | à faire |
 | SEC-dos-paths | Graphe dense au plafond (150/300) : réponse bornée en temps, au plus 20 chemins | T-GRA-02 | U, I | #21 | à faire |
 | SEC-RL-login / SEC-RL-forgot | 429 normalisé au seuil, message identique pour un compte existant ou inexistant | T-AUTH-01, T-INV-09 | I | #8, #15 | à faire |
-| SEC-suspended | Membre d'un tenant suspendu bloqué, portail client du tenant en 404 (comportement exact à trancher dans #12) | T-API-08 | I | #12 | à faire |
+| SEC-suspended | Tenant suspendu (ADR-026, ordre ADR-025) : (a) membre cabinet → 403 `TENANT_SUSPENDED` sur `/tenants/{t}/*` et `/engagements/{e}/*` ; (b) non-membre → 404 (périmètre avant suspension) ; (c) `CLIENT_VIEWER` → `GET /client/engagements` sans ses engagements, puis détail, constats et download en 404, sans code spécifique ; (d) `POST /auth/login` → 200 et `GET /auth/me` sans ce tenant ni ses client_orgs ; (e) `PLATFORM_ADMIN` garde `/platform/*` ; (f) réactivation → accès rétablis sans autre action ; (g) audit `tenant.suspend` et `tenant.reactivate` présents | T-API-08 | I | #12, #26 | à faire |
 | SEC-audit-immutable | `UPDATE`/`DELETE` sur `audit_events` refusés par trigger | T-AUD-01 | I | #7, #11 | à faire |
+| SEC-forgot-204 | `POST /auth/forgot-password` → 204 sans corps, réponses identiques octet pour octet (statut, en-têtes pertinents, corps) pour un compte existant, inexistant ou inactif (ADR-026, THREAT_MODEL R7) | T-INV-06 | I | #15 | à faire |
+| SEC-returnTo | Validation de `returnTo` après connexion (ADR-026, voir §3.2) | open redirect | V, E | #17, #34 | à faire |
+
+### 3.2 Cas de test `returnTo` (ADR-026 + remarque Cyber sur le double encodage)
+
+Test Vitest table-driven sur la fonction de validation (#17), complété par un cas Playwright (#34 ou #27) : après connexion avec un `returnTo` refusé, l'utilisateur doit arriver sur l'accueil de son espace.
+
+| Entrée | Attendu | Motif |
+|---|---|---|
+| `/t/<tenantId>/engagements` (route connue) | accepté | chemin interne relatif valide |
+| `/route-inconnue` | refusé → accueil | absent de la table des routes connues |
+| `//evil.example` | refusé | protocol-relative |
+| `/\evil.example` | refusé | antislash normalisé en `/` par les navigateurs |
+| `/\/evil.example` | refusé | antislash |
+| `https://evil.example` | refusé | schéma |
+| `javascript:alert(1)` | refusé | schéma (`:` avant le premier `/`) |
+| `%2F%2Fevil.example` | refusé | `//` encodé |
+| `%252F%252Fevil.example` | refusé | **double encodage** : on valide la valeur décodée une seule fois, et on refuse si un second décodage la modifie (remarque Cyber, PR #38) |
+| `/\tevil` , `/%09/evil`, `/\nevil`, `/%0A/evil` | refusé | caractères de contrôle, dont `\t` et `\n` tolérés par les navigateurs |
+| `` (vide) ou absent | accueil de l'espace | valeur par défaut |
+| route d'un autre espace (ex. lien portail vers `/t/...` cabinet) | pas de changement d'espace sans appel serveur ; l'API décide (403/404) | l'autorisation reste côté backend |
+
+Données d'entrée fictives uniquement (`evil.example`, domaine réservé RFC 2606).
 
 ## 4. Critères de refus de PR (verdict QA)
 
@@ -138,6 +161,10 @@ Règles :
 | #32 | #1 | 2026-11-19 | APPROUVÉ | Corrections du commit 791386f vérifiées (P0, chemin critique via #16, DoD §6.3–6.5, #34, ADR-019/020) |
 | #36 | #2 | 2026-11-19 | APPROUVÉ | `check_contrast.py` relancé : 38/38, exit 0 ; `json.tool` OK ; remarques : 415 → 400 `UNSUPPORTED_MEDIA_TYPE`, suspension à aligner avec THREAT_MODEL R6 |
 | #37 | #3 | 2026-11-19 | CHANGEMENTS DEMANDÉS | 202 sur forgot-password hors codes de 01 §6 ; R6 `TENANT_SUSPENDED` absent d'ADR-013 et contradictoire avec DESIGN P8 |
+| #37 | #3 | 2026-11-19 | APPROUVÉ | `a18b569` : 204 (R7), R6 aligné sur ADR-025, matrice de 44 lignes sans 202 ; reste : critères `sandbox`/`#token=` seulement en commentaires d'issues (#15, #16, #20, #26) |
+| #38 | #12 | — | **Pas de review QA** | Mergée le 2026-11-19 avec une seule review Cyber (APPROUVÉ). Relecture QA a posteriori d'ADR-026 : cohérente avec THREAT_MODEL R6/R7 et ADR-025, intégrée en §3.1/§3.2 (SEC-suspended, SEC-forgot-204, SEC-returnTo) |
+
+Résumé de l'état des PR revues : #32, #33, #36, #37 et #38 sont mergées.
 
 ## 7. Anomalies ouvertes
 
