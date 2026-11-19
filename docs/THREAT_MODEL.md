@@ -2,7 +2,7 @@
 
 - **Auteur :** rôle Expert Cyber — issue #3
 - **Statut :** version initiale J1 (avant implémentation). Révisée à chaque PR sensible et en J4 (#26).
-- **Sources normatives :** `01_SPECIFICATIONS_ET_ARCHITECTURE.md` (§1, §3–§8), `02_PLAN_DE_TEST_ET_SECURITE.md` (F01–F20, §3, §6). Décisions d'implémentation : `docs/DECISIONS.md` (ADR-006 à ADR-016, ADR-021 forme de `/auth/me`, ADR-024, **ADR-025** codes 403/404, ordre des contrôles, tenant suspendu).
+- **Sources normatives :** `01_SPECIFICATIONS_ET_ARCHITECTURE.md` (§1, §3–§8), `02_PLAN_DE_TEST_ET_SECURITE.md` (F01–F20, §3, §6). Décisions d'implémentation : `docs/DECISIONS.md` (ADR-006 à ADR-016, ADR-021 forme de `/auth/me`, ADR-024, **ADR-025** codes 403/404, ordre des contrôles, tenant suspendu ; **ADR-026** tenant suspendu, forgot-password 204, `returnTo`).
 - **Ce document ne modifie aucun contrat.** Les points non tranchés par la spec sont signalés comme *hypothèse de travail* et renvoient à une `architecture-question` (#29, #30, #31, #35).
 - **Conformité :** aucune conformité OWASP ASVS n'est revendiquée (01 §8). Les contrôles listés en §12 sont *visés* ; seuls ceux couverts par un test exécuté et journalisé pourront être déclarés « vérifiés » dans `docs/QA_REPORT.md`.
 - **Données :** exclusivement fictives (02 §1). Aucun scan de service tiers ; toutes les vérifications s'exécutent sur instance locale.
@@ -205,11 +205,12 @@ Authentification et autorisation sont des dépendances FastAPI résolues **avant
 - **R3** — Routes `/platform/*` : capacité globale, non liée à une ressource métier → **403** pour tout authentifié non `PLATFORM_ADMIN` (rien à cacher). Exception AQ #29 (hyp.) : `PLATFORM_ADMIN` peut appeler `POST /tenants/{tenant_id}/members` avec `role=TENANT_ADMIN` uniquement (sinon 403) ; il reste en 404 sur toutes les autres routes du tenant.
 - **R4** — Routes `/client/*` : listes filtrées par `client_memberships` (200, éventuellement vide, pour tout authentifié) ; détail / download hors périmètre, non publié ou non visible → **404**.
 - **R5** — Anonyme → **401** sur toute route non listée comme anonyme.
-- **R6** — Tenant suspendu (`tenants.is_active=false`, #12) — décidé par **ADR-025 §6** (code `TENANT_SUSPENDED` ajouté à ADR-013) :
+- **R6** — Tenant suspendu (`tenants.is_active=false`, #12) — décidé par **ADR-025 §6** et **ADR-026** (code `TENANT_SUSPENDED` → 403 dans ADR-013) ; tests SEC-suspended (#12, #26) :
   - `POST /auth/login` **reste possible** (200) : la suspension porte sur le tenant, pas sur le compte (`users.is_active` inchangé) ; les sessions existantes restent valides. Un utilisateur sans autre membership se connecte donc, mais `GET /auth/me` renvoie `tenant_memberships` sans ce tenant (ni ses client_orgs, ADR-021) : aucun espace métier ne lui est proposé ;
   - ses membres cabinet reçoivent **403 `TENANT_SUSPENDED`** sur toutes les routes `/tenants/{t}/*` et `/engagements/{e}/*` du tenant (ordre §6, étape 4) ;
   - portail client : ses engagements disparaissent (`GET /client/engagements` sans eux ; détail, constats et download → 404) ;
-  - `/platform/*` reste accessible au `PLATFORM_ADMIN` (réactivation par `PATCH /platform/tenants/{t}`).
+  - non-membres : 404 inchangé ; le client ne reçoit jamais `TENANT_SUSPENDED` (l'état du cabinet ne lui est pas révélé) ;
+  - `/platform/*` reste accessible au `PLATFORM_ADMIN` ; la réactivation (`PATCH /platform/tenants/{t}`) rétablit les accès sans autre action.
 - **R7** — `POST /auth/forgot-password` → **204 No Content** dans tous les cas (compte existant, inexistant, inactif). 01 §6 n'autorise que 200/201/204 ; 204 est retenu plutôt que 200 car l'absence de corps rend la non-énumération vérifiable trivialement (réponses octet pour octet identiques) et ne laisse aucun message susceptible de diverger. Le 429 (rate limit) s'applique de façon identique quel que soit le compte.
 
 ### 7.2 Matrice route × rôle
@@ -316,7 +317,7 @@ Toutes les lignes 4, 9–10, 12, 14, 16, 18, 20, 22, 24–26, 28, 30–33, 35, 3
 | F09 | T-GRA-05 | | F19 | T-AUTH-05 (persistance session valide) |
 | F10 | T-GRA-05 | | F20 | T-OPS-01, T-AUTH-11 |
 
-Tests complémentaires à créer dans `tests/security/` (#26), non couverts par F01–F20 : SEC-RBAC (matrice §7.2 paramétrée, 44 routes × 7 colonnes), SEC-fixation, SEC-login-origin, SEC-token-url, SEC-invite-existing, SEC-reassign, SEC-unpublish, SEC-sqli, SEC-dos-paths, SEC-RL-login, SEC-RL-forgot, vérification des en-têtes (CSP, `nosniff`, `Content-Disposition`, `Cache-Control`), cookie altéré/expiré/révoqué, invitation expirée, mutations en `CLOSED`.
+Tests complémentaires à créer dans `tests/security/` (#26), non couverts par F01–F20 : SEC-RBAC (matrice §7.2 paramétrée, 44 routes × 7 colonnes), SEC-fixation, SEC-login-origin, SEC-token-url, SEC-invite-existing, SEC-reassign, SEC-unpublish, SEC-suspended (ADR-026), SEC-sqli, SEC-dos-paths, SEC-RL-login, SEC-RL-forgot, vérification des en-têtes (CSP, `nosniff`, `Content-Disposition`, `Cache-Control`), cookie altéré/expiré/révoqué, invitation expirée, mutations en `CLOSED`.
 
 ## 11. Checklist de revue Cyber (PR sensibles : #7, #8, #9, #10, #11, #15, #16, #19, #20, #23, #26)
 
@@ -361,7 +362,7 @@ La review est publiée dans la PR avec, pour chaque point : ✔ / ✘ / N/A et l
 
 **Rendu (#18, #22, #23)**
 - [ ] **[B]** Aucun `dangerouslySetInnerHTML`, `innerHTML`, `eval`, rendu Markdown HTML ; libellés React Flow en texte.
-- [ ] Redirections post-login limitées à des chemins internes relatifs (pas d'open redirect).
+- [ ] `returnTo` post-login conforme à ADR-026 : chemin interne relatif seulement (refus de `//`, `/\`, antislash, schéma, caractère de contrôle, forme encodée), comparé aux routes connues ; tests Vitest des cas d'ADR-026.
 
 **Configuration (#5, #26)**
 - [ ] Postgres et Mailpit non publiés hors dev ; backend non root ; volume preuves monté uniquement dans `backend`.
