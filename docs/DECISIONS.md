@@ -215,3 +215,36 @@ Décisions non prescrites proposées par le rôle Designer dans `docs/DESIGN.md`
   Le front affiche `is_active` (D-UX-08) sans jointure avec la liste des findings et sans recalcul. `GET /graph/paths` garde exactement la forme de 01 §6 (`{edge_ids, asset_ids, score, target_asset_id}`), sans champ supplémentaire.
 - **Alternatives :** jointure front avec la liste des findings (deux sources à synchroniser, risque d'incohérence transitoire et règle d'activité dupliquée côté client).
 - **Impact :** une seule requête jointe côté serveur ; le front ne détient aucune règle métier de chemin (10_UX).
+
+## ADR-025 — Précisions d'ADR-008 : codes 403/404, ordre des contrôles, tenant suspendu
+- **Date / statut :** 2026-11-19 — Acceptée (proposition Cyber, `docs/THREAT_MODEL.md` §6–§7, PR #37 ; issues #10, #12, #16, #19). Précise ADR-008 sans modifier 01 §6.
+- **Contexte :** 01 §6 donne la règle « 404 ressource inexistante ou hors périmètre ; 403 permission insuffisante » sans dire quand un utilisateur authentifié est hors périmètre, ni dans quel ordre les contrôles s'appliquent.
+- **Décision :**
+  1. **404 hors membership cabinet.** Sur `/tenants/{tenant_id}/*` et `/engagements/{engagement_id}/*`, tout principal sans membership `TENANT_ADMIN`/`PENTESTER` dans le tenant de la ressource reçoit 404. C'est le cas de `CLIENT_VIEWER` (même sur son propre engagement), de `PLATFORM_ADMIN` et des membres d'un autre tenant. **Seule exception** (hypothèse AQ #29) : `PLATFORM_ADMIN` sur `POST /tenants/{tenant_id}/members` avec `role=TENANT_ADMIN` (201 ; autre rôle → 403 ; tenant inexistant → 404).
+  2. **403 pour un rôle insuffisant dans le tenant.** Exemple : PENTESTER sur une route réservée à l'admin. Il connaît déjà le tenant, la réponse ne révèle donc rien.
+  3. **`/platform/*`** : 403 pour tout utilisateur authentifié non plateforme. C'est une capacité globale : il n'y a aucune ressource à masquer.
+  4. **Ordre des contrôles** (invariant testé par la suite SEC-RBAC de #26) :
+     - 401 (session) ;
+     - 403 `CSRF_FAILED` (méthodes mutantes) ;
+     - 404 (périmètre parent chargé avec les memberships) ;
+     - 403 `TENANT_SUSPENDED` ;
+     - 403 (rôle, **avant** tout chargement d'enfant) ;
+     - 404 (enfant chargé **dans** son parent) ;
+     - 422 / 400 / 409 / 413.
+     
+     L'authentification et l'autorisation sont des dépendances FastAPI résolues **avant** la validation du corps, pour qu'un 422 ne révèle rien à un appelant non autorisé. Seule exception tolérée : un 413 émis par le reverse proxy avant le backend. `client_max_body_size` est réglé **au-dessus** de 10 Mio + enveloppe multipart, de sorte que la limite contractuelle et son 413 restent appliqués par le backend, après autorisation.
+  5. **PENTESTER** reçoit 403 sur `GET/POST /tenants/{tenant_id}/members` et sur `GET/POST /tenants/{tenant_id}/clients/{client_id}/invitations`. La gestion des membres et des invitations relève du TENANT_ADMIN (01 §1).
+  6. **Tenant suspendu** (`tenants.is_active=false`, #12) :
+     - ses membres cabinet reçoivent **403 `TENANT_SUSPENDED`** sur les routes du tenant. Ils connaissent déjà le tenant, et le message est explicite pour l'interface ;
+     - ses engagements disparaissent du portail client (listes vides, détail et téléchargement en 404) ;
+     - le tenant est exclu de `GET /auth/me` (ADR-021) ;
+     - les routes `/platform/*` restent accessibles au PLATFORM_ADMIN.
+     
+     Le code `TENANT_SUSPENDED` s'ajoute à la liste d'ADR-013.
+  7. **Droits cumulés par ressource** : un utilisateur à la fois membre cabinet et client voit chaque ressource selon le membership qui s'y applique, jamais selon un « rôle principal » (01 §1).
+- **Recommandations Cyber associées, validées** (commentaires #13, #16, #17) :
+  - `client_org_id` d'un engagement non modifiable après création, pour éviter de basculer des constats publiés vers un autre client (`PATCH` → 422 sur ce champ) ;
+  - `POST /auth/accept-invitation` pour un e-mail déjà inscrit : le `password` du body doit correspondre au mot de passe existant (vérification Argon2id) avant d'ajouter le membership. Le mot de passe n'est jamais remplacé par cette route ;
+  - jetons d'invitation et de reset transmis dans le **fragment** d'URL (`#token=`), avec `Referrer-Policy: no-referrer`.
+- **Alternatives :** 403 pour les clients sur les routes cabinet (révèle l'existence des UUID) ; 404 pour un tenant suspendu (message incompréhensible pour ses membres légitimes).
+- **Impact :** #10 (policies), #12, #16, #19, #26 (tests paramétrés sur la matrice de THREAT_MODEL §7.2).
