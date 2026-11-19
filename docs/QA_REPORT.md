@@ -15,7 +15,7 @@
 | Sécurité backend | pytest paramétré (route × rôle × ressource étrangère) | 02 §3 : substitution d'IDs, sessions, CSRF/Origin, uploads, en-têtes | `backend/tests/security/` | Chaque PR à partir de #10, complétée dans #26 |
 | Composants frontend | Vitest (+ Testing Library) | États chargement/erreur/vide, rendu texte des contenus utilisateur (F15), client API (en-tête CSRF, purge du cache à la déconnexion), routage par rôle | `frontend/src/**/*.test.ts(x)` | Chaque PR frontend (CI) |
 | Build / typecheck | `tsc --noEmit`, `vite build`, ruff, `docker compose build` | Compilation et lint | CI | Chaque PR |
-| End-to-end | Playwright contre `docker compose up` + seed #25 | Parcours de référence de 02 §2 dans un vrai navigateur | `e2e/` | Smoke dès la sortie de J2, suite complète avant clôture (#27) |
+| End-to-end | Playwright contre `docker compose up` + seed #25 | Parcours de référence de 02 §2 dans un vrai navigateur | `e2e/` | Smoke dès la sortie de J2 (#34, ADR-019), suite complète avant clôture (#27) |
 | Vérifications manuelles | curl/HTTPX local, inspection navigateur | Échange d'IDs, en-têtes, logs, persistance du volume, responsive | Instance locale isolée | J4 (#26, #28) |
 
 Principes :
@@ -31,10 +31,10 @@ Statuts : `à faire` / `en cours` / `OK` (avec réf. d'exécution §5) / `KO` (a
 
 | ID | Scénario (02 §2) | Niveaux | Issue(s) porteuse(s) | Statut | Réf. exécution |
 |---|---|---|---|---|---|
-| F01 | Login, logout, re-login ; ancienne session refusée | I, V, E | #8, #17, #27 | à faire | — |
+| F01 | Login, logout, re-login ; ancienne session refusée | I, V, E | #8, #17, #34, #27 | à faire | — |
 | F02 | Invitation client consommée puis rejouée | I, E | #16, #17, #27 | à faire | — |
-| F03 | Admin Aegis crée client + engagement | I, E | #13, #27 | à faire | — |
-| F04 | Pentester crée actif + constat (validation, visibilité cabinet) | I, E | #14, #27 | à faire | — |
+| F03 | Admin Aegis crée client + engagement | I, E | #13, #34, #27 | à faire | — |
+| F04 | Pentester crée actif + constat (validation, visibilité cabinet) | I, E | #14, #34, #27 | à faire | — |
 | F05 | Client lit un finding non publié (UUID connu) → absent | I, S | #19, #26 | à faire | — |
 | F06 | Finding publié visible client autorisé, invisible autre client | I, S, E | #19, #23, #26, #27 | à faire | — |
 | F07 | Client tente de modifier un finding → refus backend | I, S | #14, #19 | à faire | — |
@@ -46,7 +46,7 @@ Statuts : `à faire` / `en cours` / `OK` (avec réf. d'exécution §5) / `KO` (a
 | F13 | Client devine un evidence ID privé → refus | I, S | #20, #23, #26 | à faire | — |
 | F14 | Fichier interdit ou > 10 Mio → rejet, aucun objet durable | U, I | #20 | à faire | — |
 | F15 | XSS dans titre/description → aucun script exécuté | V, E, S | #14, #18, #23, #26, #27 | à faire | — |
-| F16 | Mutation sans jeton CSRF correct → refus | I, S | #8, #17, #26 | à faire | — |
+| F16 | Mutation sans jeton CSRF correct → refus | I, S, E | #8, #17, #34, #26 | à faire | — |
 | F17 | Rôle/tenant injecté dans le body → sans effet (mass assignment) | U, I, S | #10, #13, #16, #26 | à faire | — |
 | F18 | Action sensible → audit event sans jeton ni mot de passe | U, I | #11 (+ chaque issue émettrice) | à faire | — |
 | F19 | Refresh + redémarrage Compose → données et sessions persistées | E, M | #5, #26, #27 | à faire | — |
@@ -55,7 +55,7 @@ Statuts : `à faire` / `en cours` / `OK` (avec réf. d'exécution §5) / `KO` (a
 Notes de couverture :
 - F19 : tester `docker compose restart` **et** `docker compose down` puis `up` (sans `-v`). Une session non expirée doit rester valide, et les preuves comme la base doivent survivre.
 - F20 : rejouer l'installation dans un répertoire temporaire depuis `git clone`, sans fichier local hérité, et consigner le journal complet.
-- F18 : chaque issue qui émet un événement d'audit (#8, #12, #15, #16, #19, #20, #21) inclut un test de présence de l'événement et de recherche de chaînes sensibles dans `metadata_json`.
+- F18 : chaque issue qui émet un événement d'audit (#8, #9, #12, #13, #14, #15, #16, #19, #20, #21) inclut un test de présence de l'événement et de recherche de chaînes sensibles dans `metadata_json`.
 
 ## 3. Tests sécurité complémentaires (02 §3)
 
@@ -84,7 +84,9 @@ Ces tests sont distincts des scénarios F. Ils sont portés par `backend/tests/s
 
 Chaque review QA commence par `VERDICT QA: APPROUVÉ` ou `VERDICT QA: CHANGEMENTS DEMANDÉS` suivi de la liste des points. Une PR est **refusée** si :
 
-1. La CI est rouge, ou un test connu est cassé, désactivé (`skip`/`xfail` non justifié par une issue) ou supprimé.
+1. La CI est rouge, ou un test connu est cassé, désactivé ou supprimé (PLAN §6.5) :
+   - **test de sécurité** (autorisation, isolation, session/CSRF, upload, échappement) rouge, supprimé, désactivé (`skip`/`xfail`) ou affaibli : refus **quelle que soit la justification**. Toute modification légitime d'un tel test exige une review Cyber explicite ;
+   - **autre test** : un `skip`/`xfail` n'est toléré que s'il est justifié par une issue de suivi ouverte, citée dans le code et dans la PR.
 2. La PR n'indique aucune commande de test réellement exécutée avec son résultat, ou déclare un résultat sans journal. Avant l'existence de la CI (#5, #6), la sortie locale Python 3.12/Docker doit être jointe.
 3. Elle introduit une **régression de sécurité** : cas négatif d'autorisation retiré ou affaibli, route métier sans contrôle par ressource, `tenant_id` lu depuis le client, schéma d'entrée acceptant des champs sensibles, CSRF contourné, en-têtes de téléchargement manquants, rendu HTML brut de contenu utilisateur.
 4. Elle viole un critère bloquant de 02 §6 : fuite cross-tenant, preuve accessible sans autorisation, escalade, login cassé, démarrage impossible, injection de rendu.
@@ -114,6 +116,7 @@ Règles :
 | PR | Issue | Date | Verdict | Points principaux |
 |---|---|---|---|---|
 | #32 | #1 | 2026-11-19 | CHANGEMENTS DEMANDÉS | Priorités P1 sur des exigences obligatoires ; chemin critique sans #16 ; DoD sans lien de journal ni règle pré-CI |
+| #32 | #1 | 2026-11-19 | APPROUVÉ | Corrections du commit 791386f vérifiées (P0, chemin critique via #16, DoD §6.3–6.5, #34, ADR-019/020) |
 
 ## 7. Anomalies ouvertes
 
