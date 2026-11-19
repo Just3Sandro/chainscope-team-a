@@ -1,10 +1,10 @@
 # ChainScope — Design system « Relevé »
 
 - **Auteur :** rôle UX/UI Designer (issue #2) — 2026-11-19
-- **Sources normatives :** `01_SPECIFICATIONS_ET_ARCHITECTURE.md` §3, §4, §6, §7, §8 ; `10_UX_CREATIVITE.md` ; `docs/PLAN.md` ; ADR-008, ADR-012, ADR-013, ADR-014, ADR-015.
+- **Sources normatives :** `01_SPECIFICATIONS_ET_ARCHITECTURE.md` §3, §4, §6, §7, §8 ; `10_UX_CREATIVITE.md` ; `docs/PLAN.md` ; ADR-008, ADR-012 à ADR-015, ADR-021 à ADR-025.
 - **Tokens :** `docs/design-tokens.json` (bloc `tailwind` → `theme.extend`, bloc `semantic` → mapping métier).
 - **Vérification contraste :** `python3 docs/tools/check_contrast.py` (bibliothèque standard, code retour 1 si une paire échoue). Résultat consigné en annexe A.
-- **Portée :** ce document décrit l'interface ; il ne change aucun contrat. Les points non couverts par la spec sont en §12 « Questions ouvertes » et remontés au Tech Lead, jamais tranchés ici.
+- **Portée :** ce document décrit l'interface ; il ne change aucun contrat. Les points non couverts par la spec ont été remontés au Tech Lead et tranchés par ADR-021 à ADR-024 (§12), jamais ici.
 
 ---
 
@@ -64,7 +64,8 @@ Les trois coquilles ont des couleurs d'en-tête différentes : on sait toujours 
 
 - Le `tenantId` dans l'URL sert seulement au contexte de navigation. L'autorisation reste côté serveur. Un `tenantId` falsifié produit l'état 404 ou 403 renvoyé par l'API (§7).
 - Les gardes de route par rôle servent à l'affichage : elles évitent de montrer un lien inutile, elles ne protègent rien (ADR-014). Une route gardée n'est pas pré-chargée (pas de `prefetch` de données d'un espace non autorisé).
-- Après connexion : un seul espace, redirection directe ; plusieurs espaces, `/spaces` (cartes « Cabinet X », « Portail client Y », « Administration plateforme »). Le paramètre `returnTo` n'accepte qu'un chemin relatif interne commençant par `/` (ni `//`, ni schéma).
+- Après connexion : un seul espace, redirection directe ; plusieurs espaces, `/spaces` (cartes « Cabinet X », « Portail client Y », « Administration plateforme »). Le paramètre `returnTo` n'accepte qu'un chemin relatif interne commençant par un seul `/` : rejet de `//`, `/\`, de tout antislash et de tout schéma (anti open redirect, test Vitest dans #17).
+- Les espaces proposés viennent exclusivement de `GET /auth/me` (ADR-021 : `is_platform_admin`, `tenant_memberships`, `client_memberships`). Après un rechargement de page (F19), la coquille rappelle `GET /auth/me` ; aucun état d'autorisation n'est persisté côté navigateur. Un tenant suspendu n'apparaît plus dans `me`.
 
 ### 3.3 Navigation cabinet (barre latérale)
 
@@ -88,7 +89,7 @@ Légende des wireframes : `[Bouton]`, `(badge)`, `▤` table, `▦` panneau, `�
 ```
 - **Connexion :** 401 donne « E-mail ou mot de passe incorrect », sans préciser lequel. 429 donne « Trop de tentatives. Réessayez dans quelques minutes. » Le bouton est désactivé pendant l'envoi et affiche un spinner avec le texte « Connexion… ».
 - **Mot de passe oublié :** on affiche toujours le même message après envoi : « Si un compte existe pour cette adresse, un e-mail a été envoyé. » Aucune différence visible entre compte existant et inexistant (§8).
-- **Réinitialisation et acceptation d'invitation :** le jeton est lu dans l'URL puis retiré de l'historique (`replace`). Le formulaire contient le nouveau mot de passe, sa confirmation et les règles affichées sous le champ. Si le jeton est expiré ou déjà utilisé, une page d'erreur dédiée l'explique (« Ce lien n'est plus valide. Demandez-en un nouveau. »), sans formulaire.
+- **Réinitialisation et acceptation d'invitation :** le jeton est lu dans le **fragment** d'URL (`#token=…`, ADR-025, avec `Referrer-Policy: no-referrer`) puis retiré de l'historique (`replace`). Le formulaire contient le nouveau mot de passe, sa confirmation et les règles affichées sous le champ. Si le jeton est expiré ou déjà utilisé, une page d'erreur dédiée l'explique (« Ce lien n'est plus valide. Demandez-en un nouveau. »), sans formulaire.
 - **Déconnexion :** depuis le menu utilisateur. Le cache TanStack Query est vidé, l'utilisateur arrive sur `/login` avec un toast « Vous êtes déconnecté ».
 
 ### P2 — Tableau de bord cabinet (§7.2)
@@ -99,21 +100,25 @@ Légende des wireframes : `[Bouton]`, `(badge)`, `▤` table, `▦` panneau, `�
 │                                │ ▮▮▮  Élevée   5   (barres +    │
 │ [Voir toutes les missions]     │ ▮▮   Moyenne  8    libellé +   │
 │                                │ ▮    Faible   2    nombre)     │
-├ Activité récente (admin) ──────┴───────────────────────────────┤
+├ Activité récente ──────────────┴───────────────────────────────┤
 │ ▤ horodatage · acteur · action · ressource                     │
 └ Filtres : client ▾  statut mission ▾  gravité ▾ ───────────────┘
 ```
-- Les données viennent des listes existantes (`engagements?status=IN_PROGRESS`, `findings` par mission, `audit-events`). Voir §12-Q2 : il n'y a pas d'endpoint agrégé, et rien n'est inventé.
-- « Activité récente » n'apparaît que pour `TENANT_ADMIN`, puisque l'audit est réservé à l'admin. Pour un pentester, la section est absente : pas d'état vide trompeur.
+- Compteurs (ADR-022) : un seul appel `GET /tenants/{id}/engagements?status=IN_PROGRESS&limit=100`. Le front **additionne** les champs calculés serveur `findings_count_by_severity` et `findings_count_by_status` des missions renvoyées, sans autre logique. Pas d'endpoint d'agrégat, pas de requête par mission. Les filtres client et gravité restreignent ces mêmes missions et compteurs (filtres serveur ADR-023 quand ils existent).
+- « Activité récente » est présente pour les deux rôles cabinet (01 §7.2), avec une source différente :
+  - `TENANT_ADMIN` : flux `GET /tenants/{id}/audit-events` (horodatage, acteur, action, ressource) ;
+  - `PENTESTER` : constats récemment modifiés des missions en cours, via `GET /engagements/{id}/findings?sort=-updated_at&limit=…` (constante nommée). Le pentester n'appelle jamais `audit-events`.
+
+  Le titre de section reste « Activité récente » ; le sous-titre précise la source (« Journal du cabinet » ou « Constats récemment modifiés »).
 - Le graphique « constats par gravité » est une liste de barres horizontales, avec le nombre en texte. On peut le lire sans la couleur.
 
 ### P3 — Clients (§7.3, flux §3.3 et §3.5)
 - **Liste :** table filtrable (nom), pagination serveur, bouton `[Nouveau client]` visible si l'API l'autorise pour le rôle (affichage). Un 403 éventuel reste géré.
 - **Création :** dialog avec un champ `Nom`. En cas de succès, toast et ouverture du détail.
-- **Détail :** nom (modifiable via PATCH), missions du client, onglet `Invitations` (liste des invitations renvoyées par l'API, avec statut en attente, expirée ou utilisée si fourni ; formulaire e-mail ; `[Inviter]`).
+- **Détail :** nom (modifiable via PATCH), missions du client, onglet `Invitations` (liste des invitations renvoyées par l'API, filtre `state` = en attente, utilisée ou expirée selon ADR-023 ; formulaire e-mail ; `[Inviter]`).
 
 ### P4 — Missions (§7.4, flux §3.5)
-- **Liste :** filtres client, statut, recherche par nom ; colonnes nom, client, statut (badge), nombre de constats si renvoyé, dernière mise à jour.
+- **Liste :** filtres client, statut, recherche par nom ; colonnes nom, client, statut (badge), constats par gravité (mini-jauge + nombres, depuis `findings_count_by_severity`, ADR-022), constats non résolus (`findings_count_by_status.OPEN` + `IN_PROGRESS`, simple somme d'affichage), dernière mise à jour. Tri par défaut serveur `-updated_at` (ADR-023).
 - **Création :** dialog avec nom, client (select alimenté par l'API), périmètre (`scope`, textarea en texte brut), statut initial `DRAFT`.
 - **Vue d'ensemble :** périmètre, statut avec sélecteur des transitions autorisées par l'API, compteurs.
 - **Mission `CLOSED` :** bandeau `warning` en haut de la mission, « Mission clôturée : les modifications techniques sont désactivées. » Les boutons de mutation sont masqués. Si un 409 `ENGAGEMENT_CLOSED` arrive malgré tout, il est affiché tel quel (vérité serveur). Seul `TENANT_ADMIN` voit `[Rouvrir]` (hypothèse AQ #30).
@@ -134,7 +139,7 @@ Légende des wireframes : `[Bouton]`, `(badge)`, `▤` table, `▦` panneau, `�
 - Tout contenu utilisateur est rendu en texte, sans HTML ni Markdown (ADR-014, F15).
 - Le changement de statut vers `REMEDIATED` affiche une note : « Les relations de graphe appuyées sur ce constat seront neutralisées. » Après succès, les requêtes `paths` et `edges` sont invalidées.
 - Le bouton `Visible client` est un interrupteur étiqueté. Quand le constat n'est pas publié, une aide l'indique : « Visible côté client uniquement après publication du constat. »
-- Upload : la vérification de taille et de type côté client sert uniquement le confort. Le serveur décide, et ses réponses 413 et 415 sont affichées (§7.3). Une barre de progression apparaît pendant l'envoi.
+- Upload : la vérification de taille et de type côté client sert uniquement le confort. Le serveur décide, et ses réponses 413 `PAYLOAD_TOO_LARGE` et 400 `UNSUPPORTED_MEDIA_TYPE` sont affichées (§7). Une barre de progression apparaît pendant l'envoi.
 - Téléchargement : lien vers la route autorisée. Pas d'aperçu inline dans le socle.
 
 ### P6 — Graphe interactif (§7.6, flux §3.6 et §3.7)
@@ -153,14 +158,14 @@ Légende des wireframes : `[Bouton]`, `(badge)`, `▤` table, `▦` panneau, `�
 Les conventions détaillées sont au §8. Le panneau droit est l'équivalent textuel complet du canvas.
 
 ### P7 — Portail client (§7.7, flux §3.8)
-- `/portal` : cartes des missions renvoyées par `GET /client/engagements` (nom, statut, nombre de constats publiés si fourni).
+- `/portal` : cartes des missions renvoyées par `GET /client/engagements` (nom, statut, `published_findings_count` d'ADR-022 : constats publiés uniquement ; si le champ est absent, rien n'est affiché à sa place).
 - Mission : table des constats publiés (sévérité, titre, statut, date de publication), avec filtres sévérité et statut.
 - Constat : lecture seule. Aucun bouton de mutation, aucun champ éditable, aucun emplacement réservé à des notes internes. Preuves listées uniquement si l'API les renvoie, avec un téléchargement via `/client/evidences/{id}/download`.
 - Ton plus pédagogique : courte légende « Que signifie cette sévérité ? » sous le badge (texte statique, sans donnée).
 
 ### P8 — Administration plateforme (§7.8, flux §3.1 et §3.2)
 - Table des tenants : nom, slug, état (badge `Actif` ou `Suspendu`). `[Nouveau tenant]` ouvre un dialog avec nom et slug, et une validation du format du slug affichée.
-- Suspension et réactivation passent par une confirmation qui explique la conséquence : « Les membres de ce cabinet ne pourront plus se connecter. »
+- Suspension et réactivation passent par une confirmation qui explique la conséquence : « Les membres de ce cabinet n'auront plus accès à ses données. Leurs autres accès éventuels ne changent pas. » (ADR-025 : 403 `TENANT_SUSPENDED` sur les routes du tenant, missions retirées du portail client).
 - Invitation du premier `TENANT_ADMIN` : selon la réponse à l'AQ #29, sans parcours inventé avant.
 - Aucun lien vers missions, constats ou preuves. Le bootstrap admin (§3.1) se fait par CLI, sans écran.
 
@@ -291,11 +296,12 @@ Graisses : 400, 500 (libellés, badges), 600 (titres). Les chiffres des tables u
 | 400 / 422 | erreurs mappées sur les champs, résumé en tête de formulaire avec liens vers les champs |
 | 401 | session expirée : redirection vers `/login?returnTo=…` et message « Votre session a expiré » ; le cache est vidé |
 | 403 | `ForbiddenState` : « Vous n'avez pas l'autorisation d'effectuer cette action. » Pour une page entière, lien vers l'accueil de l'espace |
+| 403 `TENANT_SUSPENDED` | page dédiée : « Ce cabinet est suspendu. Ses données ne sont plus accessibles. » + lien vers `/spaces` si d'autres espaces existent ; les données de ce tenant sont retirées du cache |
 | 404 | `NotFoundState` : « Cette ressource n'existe pas ou n'est pas accessible. » Formulation identique pour une ressource inexistante ou hors périmètre (ADR-008) |
 | 409 `ENGAGEMENT_CLOSED` | `ClosedBanner` + message serveur |
 | 409 `LIMIT_REACHED` | « Limite atteinte pour cette mission (actifs ou relations). » |
 | 409 autre / `ASSET_IN_USE` | message métier explicite (§4 P4) |
-| 413 / 415 | « Fichier trop volumineux (10 Mio max). » / « Type de fichier non autorisé (PDF, PNG, JPEG, TXT). » |
+| 413 `PAYLOAD_TOO_LARGE` / 400 `UNSUPPORTED_MEDIA_TYPE` | « Fichier trop volumineux (10 Mio max). » / « Type de fichier non autorisé (PDF, PNG, JPEG, TXT). » Le mapping se fait par `error.code`, jamais par le seul statut HTTP. |
 | 429 | « Trop de requêtes. Réessayez dans quelques instants. » |
 | 5xx / réseau | `ErrorState` : « Une erreur est survenue. » + `[Réessayer]` + `request_id` copiable ; jamais de trace technique |
 
@@ -312,7 +318,7 @@ Mapping : `error.code` (ADR-013) est traduit par une table front. Si le code est
 ### 8.2 Relations (edges)
 - **Active** (constat `OPEN`, `IN_PROGRESS`, `ACCEPTED_RISK`) : trait plein 2 px `ink-700`, flèche pleine. L'étiquette porte le titre court du constat et le glyphe de sévérité. Pour `ACCEPTED_RISK`, un petit drapeau s'ajoute à l'étiquette.
 - **Neutralisée** (constat `REMEDIATED`) : tirets `6 4`, 1,5 px `ink-400`, flèche creuse, étiquette barrée + « neutralisée ». Elle reste visible (on montre que la correction a coupé le chemin), sans être supprimée.
-- L'état actif ou neutralisé vient du **statut du constat renvoyé par l'API**. Le front ne fait qu'afficher ce statut, il ne recalcule rien. Si la réponse `edges` n'inclut pas le statut, la jointure se fait avec la liste `findings` de la même mission (§12-Q4).
+- L'état actif ou neutralisé est le booléen **`is_active` calculé serveur** de chaque edge (ADR-024). L'étiquette utilise l'objet `finding {id, title, severity, cvss, status}` embarqué dans l'edge. Pas de jointure avec la liste des findings, et la règle d'activité n'est jamais dupliquée côté client.
 
 ### 8.3 Chemins
 - La liste « Chemins actifs » est **exactement** la réponse de `GET /graph/paths`, dans son ordre, avec le score affiché tel quel (une décimale). Elle n'est ni triée, ni filtrée, ni complétée côté client.
@@ -360,15 +366,21 @@ Mapping : `error.code` (ADR-013) est traduit par une table front. Si le code est
 4. À la déconnexion, au 401 et au changement d'espace ou d'utilisateur, `queryClient.clear()` est appelé (ADR-014). Rien de métier ne va dans `localStorage` ou `sessionStorage`, à part des préférences d'interface non sensibles (ex. rail replié).
 5. Les messages d'erreur affichés sont le code mappé ou `error.message` serveur, plus `request_id`. Jamais de corps brut ni de trace.
 6. Le rendu des contenus utilisateur se fait en texte (`{value}` React), sans `dangerouslySetInnerHTML` ni Markdown (F15).
-7. Les jetons d'invitation et de réinitialisation sont retirés de l'URL après lecture. Ils n'apparaissent ni dans `document.title`, ni dans les toasts, ni dans les logs console.
+7. Les jetons d'invitation et de réinitialisation (fragment `#token=`, ADR-025) sont retirés de l'URL après lecture. Ils n'apparaissent ni dans `document.title`, ni dans les toasts, ni dans les logs console.
 8. Le 404 ne distingue pas « inexistant » de « hors périmètre ». Les vérifications de rôle côté front ne se substituent jamais au 403 serveur.
 
-## 12. Questions ouvertes (remontées au Tech Lead, non tranchées ici)
+## 12. Questions de conception résolues (ADR du Tech Lead)
 
-- **Q1 — Contenu de `GET /auth/me`.** Le routage par espace (§3.2) suppose que `me` expose le drapeau plateforme et les memberships tenant/client avec leurs rôles. À confirmer dans #8. Sinon, ce besoin passe par une question au Tech Lead.
-- **Q2 — Agrégats du tableau de bord.** §6 ne prévoit pas d'endpoint agrégé « constats par gravité ». Le dashboard s'appuiera sur les listes existantes (au prix de N requêtes paginées). Ajouter un endpoint serait un choix d'implémentation à acter en ADR par le Tech Lead, pas par le design.
-- **Q3 — Champ de recherche/filtre serveur** disponible pour chaque liste (nom, sévérité, statut, publication) : à aligner sur #13 et #14.
-- **Q4 — Statut du constat dans `GET /graph/edges`.** Si absent, la jointure côté front se fait avec la liste des findings de la même mission (deux réponses serveur, aucun calcul de chemin).
+Les quatre questions ouvertes de la première version ont été tranchées par le Tech Lead dans `docs/DECISIONS.md`. Aucune ne modifie un contrat de 01 §6 : ce sont des champs de réponse ou des filtres ajoutés.
+
+| Question | ADR | Effet sur ce document |
+|---|---|---|
+| Q1 — contenu de `GET /auth/me` | **ADR-021** | §3.2 : espaces dérivés de `is_platform_admin`, `tenant_memberships`, `client_memberships` ; tenants suspendus exclus |
+| Q2 — agrégats du tableau de bord | **ADR-022** | P2 : somme front de `findings_count_by_severity` / `_by_status` ; activité récente admin (audit) et pentester (constats `-updated_at`) ; P4 et P7 : compteurs par mission et `published_findings_count` |
+| Q3 — filtres serveur des listes | **ADR-023** | FilterBar et DataTable n'exposent que les filtres de la table ADR-023 (dont `published` sur les constats, `state` sur les invitations) ; une valeur hors enum donne 422, affiché comme erreur de filtre |
+| Q4 — statut du constat dans `graph/edges` | **ADR-024** | §8.2 : affichage de `is_active` et de `finding` embarqué, sans jointure |
+
+Les précisions 403/404 et le tenant suspendu (ADR-025) sont reportés en §7 et P8.
 
 ## 13. Bonus UX — après stabilisation du socle (fin J4 au plus tôt)
 
@@ -399,7 +411,7 @@ Liste vérifiée par le designer sur #17, #18, #22, #23, #24 :
 
 ## Annexe A — Contrastes WCAG 2.x vérifiés
 
-Commande : `python3 docs/tools/check_contrast.py` (exécutée le 2026-11-19, code retour 0). Formule WCAG 2.x de luminance relative, ratio `(L1 + 0.05) / (L2 + 0.05)`.
+Commande : `python3 docs/tools/check_contrast.py` (exécutée le 2026-11-19, code retour 0). Formule WCAG 2.x de luminance relative, ratio `(L1 + 0.05) / (L2 + 0.05)`. Le script vérifie aussi que chaque couleur des paires existe dans les blocs `tailwind` ou `semantic` (0 orpheline), ce qui évite la dérive entre paires et tokens. À brancher en CI (#6) sur le fichier réellement importé par Tailwind.
 
 | Paire | Avant-plan | Fond | Ratio | Seuil | Resultat |
 |---|---|---|---|---|---|

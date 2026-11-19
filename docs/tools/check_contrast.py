@@ -39,10 +39,36 @@ def contrast(fg: str, bg: str) -> float:
     return (hi + FLARE) / (lo + FLARE)
 
 
+def _token_hexes(node: object) -> set[str]:
+    """Collecte toutes les valeurs hexadecimales declarees dans un bloc de tokens."""
+    if isinstance(node, dict):
+        return set().union(*(_token_hexes(v) for v in node.values()))
+    if isinstance(node, list):
+        return set().union(*(_token_hexes(v) for v in node))
+    if isinstance(node, str) and node.startswith("#"):
+        return {node.upper()}
+    return set()
+
+
+def _orphans(tokens: dict) -> list[str]:
+    """Paires dont une couleur n'existe pas dans les tokens (derive de copie)."""
+    known = _token_hexes(tokens["tailwind"]) | _token_hexes(tokens["semantic"])
+    return [
+        f"{pair['name']} ({color})"
+        for pair in tokens["contrastPairs"]
+        for color in (pair["fg"], pair["bg"])
+        if color.upper() not in known
+    ]
+
+
 def main() -> int:
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_TOKENS
-    pairs = json.loads(path.read_text(encoding="utf-8"))["contrastPairs"]
+    tokens = json.loads(path.read_text(encoding="utf-8"))
+    pairs = tokens["contrastPairs"]
+    orphans = _orphans(tokens)
     failures = 0
+    for orphan in orphans:
+        print(f"ORPHELINE (couleur absente des tokens) : {orphan}")
     print("| Paire | Avant-plan | Fond | Ratio | Seuil | Resultat |")
     print("|---|---|---|---|---|---|")
     for pair in pairs:
@@ -55,7 +81,8 @@ def main() -> int:
             f"| {ratio:.2f}:1 | {pair['min']}:1 | {verdict} |"
         )
     print(f"\n{len(pairs) - failures}/{len(pairs)} paires conformes")
-    return 1 if failures else 0
+    print(f"{len(orphans)} couleur(s) orpheline(s)")
+    return 1 if failures or orphans else 0
 
 
 if __name__ == "__main__":
