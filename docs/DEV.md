@@ -90,6 +90,32 @@ Vite sert normalement http://localhost:5173 et relaie `/api` vers
 Nginx relaie `/api/` vers le backend en conservant le préfixe.
 Le navigateur utilise des appels same-origin et ne stocke rien dans Web Storage.
 
+## CI
+
+Le workflow `ci.yml` (`CI`) s’exécute sur toutes les pull requests, quelle que
+soit leur branche cible, et sur les push vers `main`. Les runs d’une même ref
+sont annulés au profit du plus récent. Quatre jobs tournent en parallèle :
+
+- `backend` : Python 3.12, uv figé, Ruff lint/format, migrations Alembic sur
+  PostgreSQL 16, puis pytest.
+- `frontend` : Node 22, `npm ci`, lint, typecheck, Vitest et build.
+- `design-tokens` : contrôle des contrastes avec `docs/tools/check_contrast.py`.
+- `compose` : validation de `.env.example` avec Compose, puis build des images.
+
+Le workflow `e2e.yml` (`E2E`) se lance manuellement depuis GitHub Actions ou :
+
+```sh
+gh workflow run e2e.yml --ref <branche>
+```
+
+Il démarre Compose avec des valeurs fictives et sans Mailpit, vérifie
+`http://127.0.0.1:8080/api/v1/health`, puis lance Playwright si `e2e/package.json`
+existe. Sinon, une notice rappelle que la suite arrive avec #34/#27 : ce run
+ne valide alors que le smoke HTTP. Les logs sont affichés et les volumes de
+cet environnement CI jetable sont toujours supprimés, même en cas d’échec.
+
+**CI verte avant merge.** Exécuter aussi E2E au moins avant la clôture finale.
+
 ## Journalisation
 
 Nginx écrit sur stdout avec le format `chainscope_access` : adresse distante,
