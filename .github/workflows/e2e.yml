@@ -1,0 +1,45 @@
+name: E2E
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Préparer l’environnement CI fictif
+        run: |
+          cp .env.example .env
+          sed -i -e 's/change-me/ci-only-not-secret/g' \
+            -e 's/^APP_ENV=.*/APP_ENV=test/' \
+            -e 's/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=/' .env
+      - name: Démarrer Compose
+        run: docker compose up --build -d --wait
+      - name: Vérifier la santé via le reverse proxy
+        run: curl -fsS http://127.0.0.1:8080/api/v1/health
+      - name: Exécuter Playwright si la suite existe
+        run: |
+          if [ -f e2e/package.json ]; then
+            cd e2e
+            npm ci
+            npx playwright install --with-deps chromium
+            npx playwright test
+          else
+            echo '::notice::La suite Playwright arrive avec #34/#27 ; seul le smoke HTTP est exécuté.'
+          fi
+      - name: Afficher les logs Compose
+        if: always()
+        run: docker compose logs --no-color
+      - name: Détruire l’environnement CI jetable
+        if: always()
+        run: docker compose down -v
