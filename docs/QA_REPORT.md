@@ -96,9 +96,9 @@ Ces tests sont à créer dans `backend/tests/security/`, sauf mention contraire.
 | SEC-sqli | Payloads d'injection dans `q`, tri et filtres sans effet (liste blanche) | T-API-09 | S | #10, #13, #14 | à faire |
 | SEC-dos-paths | Graphe dense au plafond (150/300) : réponse bornée en temps, au plus 20 chemins | T-GRA-02 | U, I | #21 | à faire |
 | SEC-RL-login / SEC-RL-forgot | 429 normalisé au seuil, message identique pour un compte existant ou inexistant | T-AUTH-01, T-INV-09 | I | #8, #15 | à faire |
-| SEC-suspended | Tenant suspendu (ADR-026, ordre ADR-025) : (a) membre cabinet → 403 `TENANT_SUSPENDED` sur `/tenants/{t}/*` et `/engagements/{e}/*` ; (b) non-membre → 404 (périmètre avant suspension) ; (c) `CLIENT_VIEWER` → `GET /client/engagements` sans ses engagements, puis détail, constats et download en 404, sans code spécifique ; (d) `POST /auth/login` → 200 et `GET /auth/me` sans ce tenant ni ses client_orgs ; (e) `PLATFORM_ADMIN` garde `/platform/*` ; (f) réactivation → accès rétablis sans autre action ; (g) audit `tenant.suspend` et `tenant.reactivate` présents | T-API-08 | I | #12, #26 | à faire |
+| SEC-suspended | Tenant suspendu (ADR-026, ordre ADR-025) : (a) membre cabinet → 403 `TENANT_SUSPENDED` sur `/tenants/{t}/*` et `/engagements/{e}/*` ; (b) non-membre → 404 (périmètre avant suspension) ; (c) `CLIENT_VIEWER` → `GET /client/engagements` sans ses engagements, puis détail, constats et download en 404, sans code spécifique ; (d) `POST /auth/login` → 200 et `GET /auth/me` sans ce tenant ni ses client_orgs ; (e) `PLATFORM_ADMIN` garde `/platform/*` ; (f) réactivation → accès rétablis sans autre action ; (g) audit `tenant.suspend` et `tenant.reactivate` présents ; (h) mutation d'un membre cabinet avec un jeton CSRF valide → 403 `TENANT_SUSPENDED` **sans** modification en base ; (i) une session ouverte avant la suspension reste valide (pas de 401) mais est soumise à (a). *En attente de décision (#12/#16)* : invitation en attente sur un tenant suspendu | T-API-08 | I | #12, #26 | à faire |
 | SEC-audit-immutable | `UPDATE`/`DELETE` sur `audit_events` refusés par trigger | T-AUD-01 | I | #7, #11 | à faire |
-| SEC-forgot-204 | `POST /auth/forgot-password` → 204 sans corps, réponses identiques octet pour octet (statut, en-têtes pertinents, corps) pour un compte existant, inexistant ou inactif (ADR-026, THREAT_MODEL R7) | T-INV-06 | I | #15 | à faire |
+| SEC-forgot-204 | `POST /auth/forgot-password` → 204 sans corps, réponses identiques octet pour octet (statut, en-têtes pertinents, corps) pour un compte existant, inexistant ou inactif (ADR-026, THREAT_MODEL R7). Le 429 identique pour tout compte est couvert par SEC-RL-forgot. La mesure de timing reste indicative (THREAT_MODEL RR-08) | T-INV-06 | I | #15 | à faire |
 | SEC-returnTo | Validation de `returnTo` après connexion (ADR-026, voir §3.2) | open redirect | V, E | #17, #34 | à faire |
 
 ### 3.2 Cas de test `returnTo` (ADR-026 + remarque Cyber sur le double encodage)
@@ -117,6 +117,12 @@ Test Vitest table-driven sur la fonction de validation (#17), complété par un 
 | `%2F%2Fevil.example` | refusé | `//` encodé |
 | `%252F%252Fevil.example` | refusé | **double encodage** : on valide la valeur décodée une seule fois, et on refuse si un second décodage la modifie (remarque Cyber, PR #38) |
 | `/\tevil` , `/%09/evil`, `/\nevil`, `/%0A/evil` | refusé | caractères de contrôle, dont `\t` et `\n` tolérés par les navigateurs |
+| `/%2F%2Fevil.example`, `/%2f/evil.example` | refusé | `/` initial suivi d'un `//` encodé (majuscules ou minuscules), qui devient `///evil.example` une fois décodé ; la validation doit porter sur la valeur décodée (remarque Cyber, PR #39) |
+| `/%5Cevil.example`, `/%5C%5Cevil.example` | refusé | antislash encodé derrière un `/` initial |
+| `/%252F%252Fevil.example` | refusé | double encodage derrière un `/` initial |
+| `JaVaScRiPt:alert(1)`, `data:text/html,x` | refusé | schéma insensible à la casse, et schéma `data:` |
+| ` /t/<tenantId>/engagements` (espace initial) | refusé | ne commence pas par `/` ; aucun `trim` silencieux |
+| `/t/%00/x`, `/%00` | refusé | octet NUL |
 | `` (vide) ou absent | accueil de l'espace | valeur par défaut |
 | route d'un autre espace (ex. lien portail vers `/t/...` cabinet) | pas de changement d'espace sans appel serveur ; l'API décide (403/404) | l'autorisation reste côté backend |
 
